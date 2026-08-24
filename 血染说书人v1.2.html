@@ -1,0 +1,3746 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>血染钟楼 · 暗流涌动 —— 说书人助手</title>
+<!--
+  ============================================================================
+  血染钟楼 · 暗流涌动（Trouble Brewing）线下说书人辅助工具
+  ----------------------------------------------------------------------------
+  说明：
+  1. 纯前端、单文件、离线可用（仅角色 Wiki 链接需要网络）。
+  2. 所有数据保存到 localStorage，刷新/关闭页面不会丢失。
+  3. 逻辑参照官方 Wiki（clocktower-wiki.gstonegames.com）的暗流涌动规则：
+     - 首夜/次夜行动顺序；
+     - 各角色能力判定（恶魔击杀、士兵免疫、修士保护、圣女、圣人、
+       镇长、屠魔者、占卜师伪恶魔、隐士登记、猩红女继任等）。
+  4. 代码按功能模块分区，每区开头有中文注释，便于按实际体验调整。
+  ============================================================================
+-->
+<style>
+
+:root{
+  --bg0:#08090a; --bg1:#111315; --bg2:#1a1617;
+  --card:#17191bcc; --card-solid:#1c1d1d;
+  --line:#3b3430; --gold:#c9a45b; --gold-dim:#806b45;
+  --ink:#eee7d8; --muted:#aaa49b; --blood:#a93632; --good:#6aa58d;
+  --evil:#b84a4a; --sel:#e0b968;
+  --mono:ui-monospace,Consolas,'Courier New',monospace;
+  --serif:Georgia,'Songti SC','Noto Serif SC',serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:'Microsoft YaHei','PingFang SC','Segoe UI',sans-serif;
+  color:var(--ink);
+  background:
+    repeating-linear-gradient(112deg,rgba(255,255,255,.018) 0 1px,transparent 1px 7px),
+    repeating-linear-gradient(18deg,rgba(0,0,0,.18) 0 2px,transparent 2px 11px),
+    linear-gradient(145deg,var(--bg0),var(--bg1) 54%,var(--bg2));
+  background-attachment:fixed;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+/* ---------- 顶栏 ---------- */
+#topbar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:10px 18px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(10,11,11,.98),rgba(10,11,11,.88));
+  box-shadow:0 8px 26px rgba(0,0,0,.48),0 1px 0 rgba(201,164,91,.12);
+  backdrop-filter:blur(8px);position:sticky;top:0;z-index:30;
+}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand h1{margin:0;font-family:var(--serif);font-size:20px;letter-spacing:.06em;color:var(--gold);text-shadow:0 2px 12px rgba(0,0,0,.8)}
+.brand small{color:var(--muted);font-size:12px}
+#phasePills{display:flex;gap:6px;align-items:center;margin-left:auto}
+.pill{padding:5px 12px;border-radius:999px;border:1px solid var(--line);font-size:13px;color:var(--muted);background:rgba(255,255,255,.025)}
+.pill.active{border-color:var(--gold);color:var(--gold);background:rgba(201,164,91,.12);box-shadow:inset 0 0 12px rgba(201,164,91,.08),0 0 10px rgba(201,164,91,.12)}
+.tbtn{padding:6px 11px;border-radius:6px;border:1px solid var(--line);background:rgba(255,255,255,.035);color:var(--ink);cursor:pointer;font-size:13px;transition:.16s ease}
+.tbtn:hover{border-color:var(--gold);color:var(--gold)}
+.tbtn.danger:hover{border-color:var(--blood);color:var(--blood)}
+.switch{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+/* ---------- 布局 ---------- */
+#wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,330px);gap:16px;padding:16px;max-width:1440px;margin:0 auto}
+@media(max-width:1100px){
+  #wrap{grid-template-columns:1fr}
+  #rightCol{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
+}
+.card{background:linear-gradient(145deg,rgba(30,31,30,.94),rgba(17,18,18,.94));border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 14px 38px rgba(0,0,0,.48),inset 0 1px 0 rgba(255,255,255,.025);position:relative;overflow:hidden}
+.card::after{content:"";position:absolute;inset:0;pointer-events:none;border:1px solid rgba(201,164,91,.045);border-radius:inherit}
+.card h2{margin:0 0 12px;font-size:15px;color:var(--gold);letter-spacing:.08em;border-bottom:1px solid var(--line);padding-bottom:8px;text-shadow:0 1px 8px rgba(0,0,0,.8)}
+#leftCol{display:flex;flex-direction:column;gap:16px;min-width:0}
+#rightCol{display:flex;flex-direction:column;gap:16px;min-width:0}
+/* ---------- 提示大卡片 ---------- */
+#promptCard{text-align:center;padding:30px 20px;background:linear-gradient(180deg,rgba(24,25,24,.8),rgba(12,13,13,.32));border:1px solid rgba(201,164,91,.16);box-shadow:inset 0 0 46px rgba(0,0,0,.28)}
+#promptKind{font-size:12px;letter-spacing:.3em;color:var(--gold-dim);margin-bottom:6px}
+#promptTitle{font-family:var(--serif);font-size:30px;line-height:1.35;color:var(--ink);margin:6px 0 10px;text-shadow:0 3px 18px rgba(0,0,0,.9)}
+#promptDesc{font-size:15px;color:var(--muted);max-width:640px;margin:0 auto 4px}
+#promptRule{font-size:13px;color:var(--gold-dim);max-width:640px;margin:0 auto}
+#promptMeta{font-size:12px;color:var(--muted);margin-top:12px}
+.stepdots{display:flex;gap:6px;justify-content:center;margin-top:10px;flex-wrap:wrap}
+.dot{width:8px;height:8px;border-radius:50%;background:#403a33}
+.dot.done{background:var(--gold)}
+.dot.cur{background:var(--sel);box-shadow:0 0 8px var(--sel)}
+/* ---------- 玩家选择（头像） ---------- */
+#targetArea{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+#targetArea>.setup-row{width:100%;justify-content:center}
+#targetArea>select{max-width:100%;min-width:160px}
+#targetArea>textarea{width:min(100%,520px)}
+.avatar{
+  width:74px;padding:8px 4px 6px;border-radius:8px;cursor:pointer;text-align:center;
+  background:rgba(255,255,255,.04);border:1px solid var(--line);transition:all .15s;
+  user-select:none;
+}
+.avatar:hover{border-color:var(--gold)}
+.avatar .a-badge{width:42px;height:42px;border-radius:50%;margin:0 auto 5px;display:grid;place-items:center;
+  font-family:var(--serif);font-size:17px;color:#16130f;background:linear-gradient(145deg,#9a8050,#4d3d28);
+  border:2px solid #7f653b;}
+.avatar .a-name{font-size:11px;color:var(--ink);word-break:break-all}
+.avatar .a-tag{font-size:9px;color:var(--muted);margin-top:2px}
+.avatar.dead{opacity:.4;filter:grayscale(.9)}
+.avatar.dead .a-badge{background:#343332;border-color:#272727;color:#77736d}
+.avatar.sel{border-color:var(--sel);box-shadow:0 0 14px rgba(255,211,110,.5);transform:translateY(-2px)}
+.avatar.sel .a-badge{border-color:var(--sel)}
+.avatar.forbidden{opacity:.45;cursor:not-allowed}
+.badge-marks{position:relative}
+.badge-marks .mk{position:absolute;top:-6px;right:-8px;font-size:11px}
+/* ---------- 动作按钮 ---------- */
+.btnrow{display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap}
+.btn{padding:9px 22px;border-radius:6px;border:1px solid var(--gold);color:var(--gold);background:rgba(201,164,91,.07);font-size:15px;cursor:pointer;transition:all .15s;box-shadow:0 3px 12px rgba(0,0,0,.25)}
+.btn:hover{background:rgba(201,164,91,.16);box-shadow:0 4px 16px rgba(0,0,0,.4)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.primary{background:linear-gradient(145deg,#c9a45b,#755628);color:#17120b;border-color:transparent;font-weight:700}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.ghost{border-color:var(--line);color:var(--muted);background:transparent}
+.btn.ghost:hover{color:var(--ink);border-color:var(--muted)}
+.btn.warn{border-color:var(--blood);color:#e68d84;background:rgba(169,54,50,.12)}
+/* ---------- 结果卡 ---------- */
+#resultCard{display:none;border:1px solid rgba(201,164,91,.7);background:rgba(45,36,23,.2);margin-top:16px;padding:16px 18px;border-radius:7px;box-shadow:0 12px 30px rgba(0,0,0,.35),inset 0 0 22px rgba(201,164,91,.04)}
+#resultCard.show{display:block}
+#resultTitle{color:var(--gold);font-family:var(--serif);font-size:20px;margin-bottom:8px;text-align:center}
+#resultBody{font-size:14px;color:var(--ink);line-height:1.8;text-align:center}
+.hintline{margin:6px 0}
+.hintline.warn{color:#ffb3a7}
+.hintline.good{color:var(--good)}
+.hintline.evil{color:#ff9c8f}
+.maskrow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:10px 0}
+.masktag{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--muted);background:rgba(255,255,255,.03)}
+.masktag.on{border-color:var(--evil);color:var(--evil)}
+select,input[type="text"],input[type="number"],input:not([type]),textarea{
+  background:linear-gradient(180deg,#181a19,#111313);color:var(--ink);border:1px solid #4a4037;border-radius:5px;
+  padding:8px 10px;font-size:14px;box-shadow:inset 0 1px 5px rgba(0,0,0,.38),0 1px 0 rgba(255,255,255,.025);
+  transition:border-color .15s,box-shadow .15s,background .15s;
+}
+select:focus,input[type="text"]:focus,input[type="number"]:focus,input:not([type]):focus,textarea:focus{outline:none;border-color:var(--gold);background:#1b1c1b;box-shadow:0 0 0 3px rgba(201,164,91,.12),inset 0 1px 5px rgba(0,0,0,.3)}
+input[type="number"]{appearance:textfield;-moz-appearance:textfield;text-align:center;font-family:var(--serif);font-weight:700;color:var(--gold)}
+input[type="number"]::-webkit-inner-spin-button,input[type="number"]::-webkit-outer-spin-button{appearance:none;margin:0}
+/* ---------- 设置面板 ---------- */
+.setup-row{display:flex;gap:8px;margin-bottom:8px;align-items:center;flex-wrap:wrap}
+.setup-row input[type=text]{flex:1}
+.setup-row-count{display:grid;grid-template-columns:max-content 86px max-content minmax(200px,1fr);gap:10px;margin:2px 0 14px;align-items:center}
+.setup-row-count label{color:var(--muted);font-size:13px;white-space:nowrap}
+.setup-row-count #newPlayerCount{width:86px;height:42px}
+.setup-row-count .btn{height:42px;white-space:nowrap}
+.setup-row-count .count-hint{color:var(--muted);font-size:12px;line-height:1.5}
+.players-setup{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.setup-player{display:grid;grid-template-columns:42px minmax(120px,.8fr) minmax(240px,1.7fr) minmax(180px,1.2fr);gap:10px;align-items:center;margin:0;padding:9px 10px;background:rgba(255,255,255,.025);border:1px solid rgba(91,79,66,.58);border-radius:7px}
+.setup-player > b{font-family:var(--serif);font-size:20px;color:var(--gold);text-align:center}
+.setup-player input[data-field="name"]{width:100%;min-width:0;font-weight:700;letter-spacing:0}
+.setup-player select{width:100%;min-width:0}
+.setup-player label{display:flex;align-items:center;gap:8px;min-width:0;color:var(--muted);font-size:12px;white-space:nowrap}
+.setup-player label select{min-width:0}
+.prow{display:flex;gap:8px;align-items:center;background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:6px;padding:7px 10px;flex-wrap:wrap}
+.prow .pname{min-width:86px;font-weight:700}
+.prow select{max-width:150px}
+.cat-tag{font-size:10px;padding:2px 7px;border-radius:999px;border:1px dashed var(--line);color:var(--muted)}
+.cat-tag.townsfolk{color:var(--good)}
+.cat-tag.outsider{color:#b79a78}
+.cat-tag.minion{color:var(--evil)}
+.cat-tag.demon{color:#ff6b5e}
+.cat-tag.dead{color:#77736d}
+.composition{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.comp-item{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:6px;padding:8px;text-align:center}
+.comp-item b{display:block;font-size:20px}
+.comp-item span{font-size:11px;color:var(--muted)}
+.comp-item.ok{border-color:#2f8f6a}
+.comp-item.bad{border-color:#7a2f2f}
+/* ---------- 玩家面板 ---------- */
+#playerPanelList{display:flex;flex-wrap:wrap;gap:8px;max-height:52vh;overflow:auto;padding-right:4px;align-content:flex-start}
+.pp{display:flex;gap:8px;align-items:center;padding:7px 10px;border-radius:6px;background:rgba(255,255,255,.035);border:1px solid var(--line);flex:1 1 calc(50% - 4px);min-width:150px;transition:border-color .16s,background .16s}
+.pp:hover{border-color:rgba(201,164,91,.55);background:rgba(201,164,91,.06)}
+.pp.dead{opacity:.55}
+.pp .pa{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:13px;color:#16130f;background:linear-gradient(145deg,#9a8050,#4d3d28);flex-shrink:0}
+.pp.dead .pa{background:#343332;color:#77736d}
+.pp .pn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.pp .pr{font-size:11px;color:var(--muted)}
+.pp .pr.reveal{color:var(--gold)}
+.pp .pms{font-size:11px}
+.mark-p{color:#81b8a3} .mark-b{color:#e68d84;cursor:pointer} .mark-q{color:#b79a78}
+.player-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 2px;border-bottom:1px solid var(--line)}
+.player-row:last-child{border-bottom:0}
+.player-row.dead{opacity:.58}
+.player-identity{min-width:0}
+.player-identity b{display:block;font-family:var(--serif);font-size:16px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player-identity small{display:block;color:var(--muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player-actions{display:flex;align-items:center;justify-content:flex-end;gap:9px;white-space:nowrap}
+.life-state{color:var(--ink);font-size:13px}
+.player-actions .btn{padding:7px 10px;font-size:12px}
+/* ---------- 日志 ---------- */
+#logBox{height:52vh;overflow:auto;font-size:12.5px;line-height:1.7;padding:6px 2px}
+#logBox .le{border-left:2px solid var(--line);padding:5px 10px;margin:5px 0;background:rgba(255,255,255,.018);border-radius:0 4px 4px 0}
+#logBox .le.night{border-left-color:#6d5963}
+#logBox .le.day{border-left-color:var(--gold)}
+#logBox .le.death{border-left-color:var(--blood);background:rgba(169,54,50,.08)}
+#logBox .le.win{border-left-color:#4ec9a0;background:rgba(78,201,160,.07)}
+#logBox .time{color:var(--gold-dim);font-family:var(--mono);font-size:11px}
+/* ---------- 随机抽取身份（新手说书人模式） ---------- */
+.draw-deck{margin-top:14px;border:1px dashed var(--gold);border-radius:8px;padding:16px;background:rgba(201,164,91,.04);text-align:center}
+.deck-title{font-family:var(--serif);color:var(--gold);font-size:18px;margin-bottom:8px}
+.deck-hint{color:var(--muted);font-size:13px;line-height:1.8;max-width:560px;margin:0 auto 14px}
+.deck-progress{color:var(--sel);font-size:13px;letter-spacing:.15em;margin-bottom:10px}
+.draw-card{width:280px;max-width:88%;margin:0 auto;border-radius:8px;padding:26px 18px;border:1px solid var(--line);background:linear-gradient(160deg,#292321,#141616);box-shadow:0 14px 44px rgba(0,0,0,.58);position:relative}
+.draw-card.face-down{background:linear-gradient(160deg,#3b3029,#171817);min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.draw-card .dc-back{font-size:58px;color:var(--gold);text-shadow:0 0 22px rgba(201,164,91,.45)}
+.draw-card .dc-cat{font-size:12px;letter-spacing:.35em;color:var(--gold-dim);margin-bottom:6px}
+.draw-card .dc-name{font-family:var(--serif);font-size:34px;color:var(--ink);margin:4px 0 10px}
+.draw-card .dc-ability{font-size:14px;color:var(--muted);line-height:1.8}
+.draw-card.cat-townsfolk{border-color:#3e8067;box-shadow:0 0 34px rgba(106,165,141,.18)}
+.draw-card.cat-outsider{border-color:#927a63;box-shadow:0 0 34px rgba(146,122,99,.18)}
+.draw-card.cat-minion{border-color:#7d3838;box-shadow:0 0 34px rgba(184,74,74,.2)}
+.draw-card.cat-demon{border-color:#a32318;box-shadow:0 0 34px rgba(255,80,60,.25)}
+.dc-name-prompt{font-family:var(--serif);font-size:20px;color:var(--ink)}
+.st-note{margin-top:12px;color:#e68d84;font-size:13px;background:rgba(169,54,50,.12);border:1px solid rgba(169,54,50,.4);border-radius:7px;padding:8px 12px;display:inline-block;line-height:1.6}
+.deck-done{color:var(--good);font-size:15px;margin-bottom:4px}
+.draw-bag-info{font-size:12px;color:var(--muted);margin-top:10px}
+.draw-bag-info b{color:var(--gold)}
+/* ---------- 弹窗 ---------- */
+.modal-mask{position:fixed;inset:0;background:rgba(3,4,4,.78);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
+.modal-mask.show{display:flex}
+/* 防偷看弹窗：背景模糊 + 加深遮罩，玩家无法看清弹窗后的内容 */
+.modal-mask.blur{background:rgba(3,4,4,.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.modal{background:var(--card-solid);border:1px solid var(--gold);border-radius:8px;max-width:860px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.72),inset 0 0 28px rgba(0,0,0,.22)}
+.modal h2{margin:0;padding:14px 18px;font-family:var(--serif);color:var(--gold);border-bottom:1px solid var(--line);font-size:17px}
+.modal .m-body{padding:14px 18px;overflow:auto}
+.modal .m-close{position:sticky;bottom:0;background:var(--card-solid);padding:10px;text-align:center;border-top:1px solid var(--line)}
+.role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.role-item{border:1px solid var(--line);border-radius:6px;padding:10px;background:rgba(255,255,255,.03)}
+.role-item h4{margin:0 0 6px;font-size:14px;display:flex;justify-content:space-between;gap:6px;align-items:center}
+.role-item h4 a{font-size:11px;color:var(--gold-dim);text-decoration:none}
+.role-item p{margin:0;font-size:12px;color:var(--muted);line-height:1.6}
+.role-item .cat{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+#modalRolesBody{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.role-card{border:1px solid var(--line);border-radius:6px;padding:10px;background:rgba(255,255,255,.03);min-width:0}
+.role-card b{display:block;margin-bottom:6px;font-size:14px;color:var(--ink)}
+.role-card p{margin:0 0 8px;font-size:12px;color:var(--muted);line-height:1.6}
+.role-card a{font-size:11px;color:var(--gold-dim);text-decoration:none}
+.role-card a:hover{color:var(--gold)}
+.guide-modal{max-width:940px}
+.guide-content{line-height:1.75;color:var(--muted)}
+.guide-content h3{margin:0;color:var(--gold);font-family:var(--serif);font-size:18px}
+.guide-content h4{margin:16px 0 6px;color:var(--ink);font-size:14px}
+.guide-content p{margin:6px 0}
+.guide-lede{margin:0 0 16px;padding:12px 0;border-bottom:1px solid var(--line);color:var(--ink);font-size:14px}
+.guide-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 0 18px}
+.guide-flow span{padding:9px 8px;border:1px solid var(--line);border-radius:6px;background:rgba(255,255,255,.025);text-align:center;color:var(--ink);font-size:12px}
+.guide-flow b{display:block;color:var(--gold);font-family:var(--serif);font-size:15px}
+.guide-section{border:0;border-top:1px solid var(--line);margin:0;padding:0}
+.guide-section:last-of-type{border-bottom:1px solid var(--line)}
+.guide-section summary{padding:13px 2px;cursor:pointer;color:var(--ink);font-weight:700;list-style-position:inside}
+.guide-section summary::marker{color:var(--gold)}
+.guide-section[open] summary{color:var(--gold)}
+.guide-section-body{padding:0 2px 16px}
+.guide-content ol,.guide-content ul{margin:8px 0;padding-left:22px}
+.guide-content li+li{margin-top:5px}
+.guide-rule-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
+.guide-rule-grid div{border-left:2px solid var(--gold-dim);padding:7px 10px;background:rgba(255,255,255,.02)}
+.guide-rule-grid b{display:block;color:var(--ink);font-size:13px}
+.guide-callout{margin-top:12px;padding:10px 12px;border:1px solid rgba(201,164,91,.38);border-radius:6px;background:rgba(201,164,91,.06);color:var(--ink);font-size:13px}
+.grimoire-list{display:flex;flex-direction:column;gap:8px}
+.grimoire-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:rgba(255,255,255,.035);border:1px solid var(--line)}
+.grimoire-row .gname{flex:1;font-weight:700}
+.grimoire-row .grole{font-size:13px}
+.grimoire-row.imp{border-color:var(--blood)}
+.grimoire-row>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grimoire-row>span{min-width:0;text-align:right;overflow-wrap:anywhere}
+/* ---------- 身份抽取页 ---------- */
+.draw-role{border:1px solid var(--gold);border-radius:8px;padding:22px 18px;margin-top:14px;background:linear-gradient(160deg,rgba(201,164,91,.1),rgba(201,164,91,.025));box-shadow:inset 0 0 24px rgba(0,0,0,.22)}
+#drawBody .tipbox{left:50%}
+/* ---------- 帮助悬浮提示 ---------- */
+.tip{display:inline-flex;width:15px;height:15px;border-radius:50%;border:1px solid var(--gold-dim);color:var(--gold-dim);
+  align-items:center;justify-content:center;font-size:10px;margin-left:5px;cursor:help;position:relative;flex-shrink:0}
+.tip .tipbox{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);width:240px;max-width:70vw;background:#101212;border:1px solid var(--gold);border-radius:6px;
+  padding:8px 10px;font-size:11.5px;color:var(--ink);line-height:1.6;display:none;z-index:70;text-align:left;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.tip:hover .tipbox{display:block}
+.tip .tipbox a{color:var(--gold)}
+.alert-banner{border:1px solid var(--gold);border-radius:7px;padding:10px 14px;text-align:center;color:var(--sel);font-family:var(--serif);font-size:16px;margin-top:10px;background:rgba(201,164,91,.08);box-shadow:0 8px 24px rgba(0,0,0,.32)}
+.alert-banner.evil{border-color:var(--blood);color:#ff9c8f;background:rgba(192,57,43,.1)}
+.alert-banner.good{border-color:var(--good);color:#9ff0d4;background:rgba(78,201,160,.08)}
+/* ---------- 目标 / 投票格子（与玩家一一对应） ---------- */
+.target-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;justify-content:stretch}
+#targetArea>.target-grid{width:100%}
+.target-item{
+  display:flex;align-items:center;gap:10px;text-align:left;
+  padding:12px;border-radius:7px;cursor:pointer;user-select:none;
+  background:rgba(255,255,255,.035);border:2px solid var(--line);
+  transition:border-color .12s,background .12s,transform .12s;
+}
+.target-item:hover{border-color:var(--gold);background:rgba(201,164,91,.1)}
+.target-item:has(input:checked){border-color:var(--sel);background:rgba(201,164,91,.15);box-shadow:0 0 14px rgba(201,164,91,.25);transform:translateY(-1px)}
+.target-item input[type=checkbox]{width:17px;height:17px;accent-color:var(--sel);flex-shrink:0}
+.target-item .t-name{font-weight:700;font-size:15px;color:var(--ink)}
+.target-item .t-tag{font-size:11px;color:var(--muted);display:block;margin-top:2px}
+.target-item:has(input:disabled){opacity:.4;filter:grayscale(.85);cursor:not-allowed}
+/* ---------- 夜间信息 / 说书人裁量选项（大按钮） ---------- */
+.legal-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:8px auto;max-width:600px}
+.legal-option{
+  padding:14px 10px;border-radius:7px;border:2px solid var(--line);cursor:pointer;
+  background:linear-gradient(160deg,#292321,#171818);color:var(--ink);
+  font-size:16px;font-weight:700;transition:all .12s;
+}
+.legal-option:hover{border-color:var(--gold);background:rgba(201,164,91,.14)}
+.legal-option:active{transform:translateY(1px)}
+.legal-option.picked{border-color:var(--sel);background:rgba(224,185,104,.16);box-shadow:0 0 12px rgba(224,185,104,.28)}
+#legalOptionSelect{font-size:16px;padding:10px 14px;width:min(420px,100%);min-width:260px;border:2px solid var(--gold);border-radius:6px;background:#111313;color:var(--ink)}
+#legalOptionSelect option{font-size:15px;padding:6px 10px}
+#voteArea{margin-top:10px;text-align:left}
+#voteArea > p{font-size:15px;font-weight:700;color:var(--sel);margin:6px 0 10px}
+#voteArea .target-grid{margin-bottom:10px}
+@media(max-width:760px){
+  #wrap{padding:10px;gap:10px}
+  #topbar{padding:10px 12px;gap:8px}
+  .brand{width:100%;justify-content:space-between;gap:8px}
+  .brand h1{font-size:18px;letter-spacing:.04em}
+  .brand small{font-size:11px;text-align:right}
+  #phasePills{width:100%;margin-left:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+  #phasePills .pill{grid-column:span 2;text-align:center;min-width:0;padding:6px 4px}
+  #phasePills .tbtn{grid-column:span 3;min-width:0;padding:7px 6px;white-space:normal;line-height:1.25}
+  .card{padding:12px;border-radius:7px}
+  #promptCard{padding:22px 12px}
+  #promptTitle{font-size:24px}
+  #promptDesc{font-size:14px;line-height:1.65}
+  #promptRule{font-size:12px;line-height:1.6}
+  .setup-row-count{grid-template-columns:max-content 76px minmax(0,1fr)}
+  .setup-row-count #newPlayerCount{width:76px}
+  .setup-row-count .count-hint{grid-column:1 / -1}
+  .setup-player{grid-template-columns:34px minmax(0,1fr);gap:8px;padding:9px}
+  .setup-player > b{grid-row:1 / span 2}
+  .setup-player input[data-field="name"]{grid-column:2}
+  .setup-player > select{grid-column:2}
+  .setup-player > span,.setup-player > label{grid-column:2;white-space:normal}
+  .player-row{gap:8px}
+  .player-actions{gap:6px;flex-wrap:wrap;white-space:normal}
+  #playerPanelList,#logBox{max-height:36vh}
+  .target-grid{grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:8px}
+  .target-item{padding:10px;gap:8px}
+  .target-item .t-name{font-size:14px}
+  .legal-options{grid-template-columns:1fr;max-width:none}
+  .modal-mask{padding:10px}
+  .modal{max-height:90vh}
+  .modal h2{padding:12px 14px;font-size:15px}
+  .modal .m-body{padding:12px 14px}
+  .guide-flow{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .guide-rule-grid{grid-template-columns:1fr}
+}
+@media(max-width:700px){
+  #rightCol{display:flex;flex-direction:column}
+}
+@media(max-width:540px){
+  .setup-row-count{grid-template-columns:max-content 76px;gap:8px}
+  .setup-row-count .btn{grid-column:1 / -1;width:100%}
+  .setup-row{align-items:stretch}
+  .setup-row>select,.setup-row>.btn{flex:1 1 100%;width:100%;min-width:0}
+  #targetArea>select,#targetArea>.btn{flex:1 1 100%;width:100%;min-width:0}
+  .btnrow{gap:8px}
+  .btnrow>.btn{flex:1 1 100%;min-width:0}
+  .player-row{grid-template-columns:1fr;gap:6px;padding:9px 0}
+  .player-actions{justify-content:flex-start}
+  .life-state{font-size:12px}
+  #playerPanelList,#logBox{max-height:32vh}
+  .composition{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grimoire-row{align-items:flex-start;gap:8px;padding:8px}
+  .grimoire-row>span{text-align:right;font-size:12px}
+  .guide-content h3{font-size:17px}
+  .guide-section summary{padding:12px 0}
+}
+@media(max-width:360px){
+  #wrap{padding:8px}
+  .brand h1{font-size:16px}
+  .brand small{display:none}
+  #phasePills .pill{font-size:12px}
+  .setup-player{grid-template-columns:28px minmax(0,1fr);padding:8px}
+  .setup-player > b{font-size:17px}
+  .target-grid{grid-template-columns:1fr}
+}
+
+</style>
+
+<meta name="generator" content="botc-storyteller standalone build (npm run build:standalone)">
+</head>
+<body>
+
+<!-- ==================== 顶栏 ==================== -->
+<header id="topbar">
+  <div class="brand">
+    <h1>血染钟楼 · 暗流涌动</h1>
+    <small>说书人助手（离线版）</small>
+  </div>
+
+  <div id="phasePills">
+    <span class="pill" id="pillSetup">身份设置</span>
+    <span class="pill" id="pillDay">白天</span>
+    <span class="pill" id="pillNight">夜晚</span>
+    <button class="tbtn" id="btnGuide">使用说明</button>
+    <button class="tbtn" id="btnRoles">角色总览</button>
+    <button class="tbtn" id="btnGrimoire">查看角色表</button>
+    <button class="tbtn" id="btnCopyLog">复制复盘</button>
+    <button class="tbtn danger" id="btnReset">新开一局</button>
+  </div>
+</header>
+
+<!-- ==================== 主布局 ==================== -->
+<div id="wrap">
+  <!-- 左列：设置 / 当前指令 -->
+  <div id="leftCol">
+    <!-- 身份设置面板 -->
+    <section id="setupPanel" class="card">
+      <h2>初始设置 —— 分配角色</h2>
+      <div class="setup-row setup-row-count">
+        <label for="newPlayerCount">本次玩家人数</label>
+        <input type="number" id="newPlayerCount" min="5" max="15" value="5">
+        <button class="btn" id="btnAddPlayer">添加玩家</button>
+        <span class="count-hint">只需填人数，姓名自动按座位编号（支持 5～15 人）</span>
+      </div>
+      <div id="setupPlayers" class="players-setup"></div>
+      <div class="composition" id="compoBox"></div>
+      <div id="compoNote" style="margin-top:8px; font-size:12px; color:var(--muted)"></div>
+      <div id="redHerringRow" style="margin-top:10px"></div>
+      <div id="demonBluffRow" style="margin-top:10px"></div>
+      <div style="border-top:1px dashed var(--line);margin-top:14px;padding-top:12px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">—— 新手说书人？让系统按官方配比随机发身份 ——</div>
+        <div class="btnrow" style="margin-top:0">
+          <button class="btn" id="btnRandomBag">🎲 一键随机身份（官方配比）</button>
+          <button class="btn" id="btnStartDraw">抽身份（轮流翻开）</button>
+        </div>
+        <div id="drawNote" style="margin-top:8px;font-size:12px;color:var(--muted);text-align:center"></div>
+      </div>
+      <div class="btnrow">
+        <button class="btn primary" id="btnStart">开始游戏（进入首夜）</button>
+      </div>
+    </section>
+
+    <!-- 游戏中：当前指令卡 -->
+    <section id="gamePanel" class="card" style="display:none">
+      <div id="promptCard">
+        <div id="promptKind"></div>
+        <div id="promptTitle"></div>
+        <div id="promptDesc"></div>
+        <div id="promptRule"></div>
+        <div id="promptMeta"></div>
+        <div id="stepDots" class="stepdots"></div>
+        <div id="targetArea"></div>
+        <div id="btnArea" class="btnrow"></div>
+        <div id="resultCard">
+          <div id="resultTitle"></div>
+          <div id="resultBody"></div>
+          <div id="resultExtra" class="btnrow"></div>
+        </div>
+        <div id="victoryAlert"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 右列：玩家面板 + 日志 -->
+  <div id="rightCol">
+    <section class="card">
+      <h2>玩家面板（说书人视角）</h2>
+      <div id="playerPanelList"></div>
+    </section>
+    <section class="card">
+      <h2>复盘日志（仅说书人可见）</h2>
+      <div id="logBox"></div>
+    </section>
+  </div>
+</div>
+
+<!-- ==================== 角色总览弹窗 ==================== -->
+<div class="modal-mask" id="modalGuide">
+  <div class="modal guide-modal">
+    <h2>使用说明与玩法介绍</h2>
+    <div class="m-body guide-content">
+      <p class="guide-lede">这是《血染钟楼：暗流涌动》的线下说书人助手。它将身份配置、夜晚顺序、裁量信息、白天提名和复盘集中在同一页面；游戏中的公开发言、私下交流和实际唤醒仍由说书人主持。</p>
+
+      <div class="guide-flow" aria-label="一局游戏的流程">
+        <span><b>1</b>配置身份</span>
+        <span><b>2</b>执行首夜</span>
+        <span><b>3</b>白天讨论与处决</span>
+        <span><b>4</b>重复至胜负</span>
+      </div>
+
+      <details class="guide-section" open>
+        <summary>玩法介绍：暗流涌动怎么玩</summary>
+        <div class="guide-section-body">
+          <p>《暗流涌动》是 5 至 15 名非旅行者玩家参与的阵营推理剧本。善良阵营通过信息、讨论与处决找出小恶魔；邪恶阵营通过伪装、错误信息和夜晚击杀让局势进入两人残局。</p>
+          <div class="guide-rule-grid">
+            <div><b>善良阵营胜利</b>当前小恶魔死亡，且没有猩红女郎等合法传承使游戏继续。</div>
+            <div><b>邪恶阵营胜利</b>场上只剩两名或更少存活玩家，且小恶魔仍存活。</div>
+            <div><b>白天核心</b>每名存活玩家每天最多提名一次；每名玩家每天最多被提名一次。最高且不平票的合格候选人会被处决。</div>
+            <div><b>死亡玩家</b>不能提名，仍可发言，也可在整局剩余时间中使用一次幽灵票。死亡不会公开身份。</div>
+          </div>
+          <p>角色能力优先于一般规则。陌客与间谍可在相关核验中按规则呈现为不同阵营或角色；中毒、酒鬼的失效信息则由说书人裁量。</p>
+        </div>
+      </details>
+
+      <details class="guide-section">
+        <summary>开局：配置人数、身份和隐藏信息</summary>
+        <div class="guide-section-body">
+          <ol>
+            <li>输入 5 至 15 名玩家人数，依座位修改姓名。可手动为每名玩家选角色，或使用“随机身份”。</li>
+            <li>系统按人数校验镇民、外来者、爪牙和恶魔配比；男爵会自动将两名镇民名额转为外来者名额。</li>
+            <li>若有酒鬼，为其选择一个不在场的镇民认知身份。若有占卜师，必须选定一名其他善良玩家作为红鲱鱼。</li>
+            <li>7 人或以上时，为小恶魔设置三名不在场的善良角色伪装。随后可让玩家轮流使用“抽身份”查看自己的身份。</li>
+            <li>确认后点击“开始游戏（进入首夜）”。开局后身份不可通过设置界面任意更改；如需纠正实际主持失误，请使用说书人面板的手动修正功能。</li>
+          </ol>
+          <div class="guide-callout">屏幕默认仅供说书人查看。玩家查看身份和夜晚信息时，应由说书人线下单独展示或以手势传递，避免将整个界面展示给玩家。</div>
+        </div>
+      </details>
+
+      <details class="guide-section">
+        <summary>夜晚：按步骤唤醒、选择与裁量</summary>
+        <div class="guide-section-body">
+          <p>中央提示卡按官方夜晚顺序给出当前应处理的角色。确认目标前，先在线下让对应玩家完成真实选择；此处用于记录选择、计算合法结果并保留复盘。</p>
+          <ul>
+            <li><b>首夜：</b>人数达到 7 人时先处理爪牙与恶魔互认；随后依序处理投毒者、间谍和首夜信息角色。</li>
+            <li><b>其他夜晚：</b>投毒者、僧侣、间谍、小恶魔、守鸦人、殡葬师、共情者、占卜师和管家等会在对应时机出现。</li>
+            <li><b>裁量选项：</b>出现“合法信息结果”时，选择要实际给出的结果。清醒健康的角色只会看到合法真实信息；中毒、酒鬼等失效能力可从失效信息集合中裁量。</li>
+            <li><b>特殊身份：</b>间谍可查看完整魔典，包括玩家身份与提示标记；守鸦人仅在夜间死亡时触发；殡葬师仅在当天有人因处决死亡时唤醒。</li>
+            <li><b>结束夜晚：</b>所有步骤完成后点击“天亮”。页面转入白天，玩家死亡情况应由说书人在线下公开宣布，但不公开死因。</li>
+          </ul>
+        </div>
+      </details>
+
+      <details class="guide-section">
+        <summary>白天：提名、投票、处决与杀手</summary>
+        <div class="guide-section-body">
+          <ol>
+            <li>选择提名者与被提名者并开始提名。死亡玩家不能提名，但可以成为被提名者。</li>
+            <li>在投票区勾选实际投票者。至少达到存活玩家人数的一半的票数，提名才算成功；死者使用幽灵票后会被自动标记为已用。</li>
+            <li>得票必须严格高于当前最高票才能成为处决候选人；与最高票相同会造成平票，当天无人处决，除非后来有人取得更高票。</li>
+            <li>点击“结束提名并执行上台玩家”结算处决。贞洁者、圣徒、猩红女郎与胜负会在结算中按规则处理。</li>
+            <li>杀手可在白天公开发动一次能力。界面会记录目标，并在陌客、间谍等可能登记变化的场景要求说书人选择本次登记。</li>
+          </ol>
+        </div>
+      </details>
+
+      <details class="guide-section">
+        <summary>说书人工具：角色表、复盘与存档</summary>
+        <div class="guide-section-body">
+          <ul>
+            <li><b>玩家面板：</b>显示实际角色、认知身份、生死与幽灵票状态，且可进行必要的手动死亡/复活修正。</li>
+            <li><b>查看角色表：</b>显示说书人魔典所需的身份与提示状态；间谍只能通过夜晚步骤打开专用魔典。</li>
+            <li><b>复盘日志：</b>仅说书人可见，记录夜晚选择、给出的信息、登记裁量、死亡、传承和胜负。可用“复制复盘”导出文本。</li>
+            <li><b>存档：</b>当前对局保存在本浏览器的 localStorage。刷新页面会恢复；“新开一局”会清除当前存档并重新初始化。</li>
+          </ul>
+          <div class="guide-callout">本助手只覆盖《暗流涌动》的标准非旅行者流程。旅行者、传奇角色、额外剧本角色或实体魔典的特殊提示，请由说书人依据当前剧本官方规则处理。</div>
+        </div>
+      </details>
+
+      <details class="guide-section">
+        <summary>电脑与手机端操作建议</summary>
+        <div class="guide-section-body">
+          <p>电脑端适合将夜晚提示、玩家面板和复盘同时展开；平板会将玩家面板与日志并排；手机端会自动改为单列，顶部阶段栏、表单和按钮会分行排列。</p>
+          <p>手机主持时，建议竖屏使用并在夜晚操作前锁定屏幕方向；较长的玩家列表、复盘和说明均拥有独立滚动区域，不会挤压当前行动卡。</p>
+        </div>
+      </details>
+    </div>
+    <div class="m-close"><button class="btn ghost" data-close="modalGuide">关闭</button></div>
+  </div>
+</div>
+
+<div class="modal-mask" id="modalRoles">
+  <div class="modal">
+    <h2>角色总览 · 暗流涌动</h2>
+    <div class="m-body" id="modalRolesBody"></div>
+    <div class="m-close"><button class="btn ghost" data-close="modalRoles">关闭</button></div>
+  </div>
+</div>
+
+<!-- ==================== 角色表（仅说书人查看）弹窗 ==================== -->
+<div class="modal-mask" id="modalGrimoire">
+  <div class="modal">
+    <h2>角色表（Grimoire) —— 仅供说书人查看</h2>
+    <div class="m-body" id="modalGrimoireBody"></div>
+    <div class="m-close"><button class="btn ghost" data-close="modalGrimoire">关闭</button></div>
+  </div>
+</div>
+
+<!-- ==================== 身份抽取弹窗（轮流翻开，防偷看） ==================== -->
+<div class="modal-mask blur" id="modalDraw">
+  <div class="modal">
+    <h2>身份抽取 —— 请依次单独上前查看<span style="color:var(--evil);font-weight:400;font-size:12px">（请勿将本屏投射给其他人）</span></h2>
+    <div class="m-body" id="drawBody" style="text-align:center"></div>
+    <div class="m-close"><button class="btn ghost" id="btnDrawClose" disabled>完成后关闭</button></div>
+  </div>
+</div>
+
+
+<script>
+/* 血染钟楼 · 暗流涌动 —— 说书人助手（单文件便携构建）
+   全部规则 / UI / 存档逻辑已内联；仅官方 Wiki 链接需联网。 */
+(function() {
+	Object.freeze({
+		townsfolk: "townsfolk",
+		outsider: "outsider",
+		minion: "minion",
+		demon: "demon"
+	});
+	const CHARACTERS = Object.freeze([
+		[
+			"washerwoman",
+			"洗衣妇",
+			"Washerwoman",
+			"townsfolk",
+			"首夜得知两名玩家中有一名是一个具体村民。"
+		],
+		[
+			"librarian",
+			"图书管理员",
+			"Librarian",
+			"townsfolk",
+			"首夜得知两名玩家中有一名是一个具体外来者，或得知没有外来者。"
+		],
+		[
+			"investigator",
+			"调查员",
+			"Investigator",
+			"townsfolk",
+			"首夜得知两名玩家中有一名是一个具体爪牙。"
+		],
+		[
+			"chef",
+			"厨师",
+			"Chef",
+			"townsfolk",
+			"首夜得知相邻邪恶玩家的对数。"
+		],
+		[
+			"empath",
+			"共情者",
+			"Empath",
+			"townsfolk",
+			"每夜得知两侧最近存活邻居中的邪恶人数。"
+		],
+		[
+			"fortune_teller",
+			"占卜师",
+			"Fortune Teller",
+			"townsfolk",
+			"每夜选择两名玩家并得知其中是否有恶魔。"
+		],
+		[
+			"undertaker",
+			"殡葬师",
+			"Undertaker",
+			"townsfolk",
+			"每夜（首夜除外）得知当天因处决而死亡玩家的角色。"
+		],
+		[
+			"monk",
+			"僧侣",
+			"Monk",
+			"townsfolk",
+			"每夜（首夜除外）保护除自己外一名玩家免受恶魔能力。"
+		],
+		[
+			"ravenkeeper",
+			"守鸦人",
+			"Ravenkeeper",
+			"townsfolk",
+			"夜间死亡时选择一名玩家并得知其角色。"
+		],
+		[
+			"virgin",
+			"贞洁者",
+			"Virgin",
+			"townsfolk",
+			"首次被提名时，若提名者是村民则立即处决提名者。"
+		],
+		[
+			"slayer",
+			"杀手",
+			"Slayer",
+			"townsfolk",
+			"每局一次，白天公开选择一名玩家；若其是恶魔则死亡。"
+		],
+		[
+			"soldier",
+			"士兵",
+			"Soldier",
+			"townsfolk",
+			"免受恶魔能力。"
+		],
+		[
+			"mayor",
+			"镇长",
+			"Mayor",
+			"townsfolk",
+			"三人生存且白天无处决时获胜；夜死时可能由另一玩家代死。"
+		],
+		[
+			"butler",
+			"管家",
+			"Butler",
+			"outsider",
+			"每夜选择主人；次日只能在主人投票时投票。"
+		],
+		[
+			"saint",
+			"圣徒",
+			"Saint",
+			"outsider",
+			"若因处决死亡，其阵营失败。"
+		],
+		[
+			"recluse",
+			"陌客",
+			"Recluse",
+			"outsider",
+			"可能登记为邪恶，且登记为爪牙或恶魔（即使已死亡）。"
+		],
+		[
+			"drunk",
+			"酒鬼",
+			"Drunk",
+			"outsider",
+			"不知道自己是酒鬼，并认为自己是一个村民。"
+		],
+		[
+			"poisoner",
+			"投毒者",
+			"Poisoner",
+			"minion",
+			"每夜选择一名玩家，使其当夜与次日中毒。"
+		],
+		[
+			"spy",
+			"间谍",
+			"Spy",
+			"minion",
+			"每夜查看魔典，并可能登记为善良，且登记为镇民或外来者（即使已死亡）。"
+		],
+		[
+			"scarlet_woman",
+			"猩红女郎",
+			"Scarlet Woman",
+			"minion",
+			"恶魔死亡前至少五人存活时变为该恶魔。"
+		],
+		[
+			"baron",
+			"男爵",
+			"Baron",
+			"minion",
+			"设置时增加两个外来者并减少两个村民。"
+		],
+		[
+			"imp",
+			"小恶魔",
+			"Imp",
+			"demon",
+			"每夜（首夜除外）选择一名玩家死亡；自杀时一名存活爪牙变为小恶魔。"
+		]
+	].map(([id, nameZh, nameEn, category, abilityTextZh]) => Object.freeze({
+		id,
+		nameZh,
+		nameEn,
+		category,
+		alignment: category === "minion" || category === "demon" ? "evil" : "good",
+		abilityTextZh,
+		wikiUrl: `https://clocktower-wiki.gstonegames.com/index.php?title=暗流涌动`
+	})));
+	const CHARACTER_BY_ID = Object.freeze(Object.fromEntries(CHARACTERS.map((character) => [character.id, character])));
+	const CHARACTER_IDS = Object.freeze(CHARACTERS.map((character) => character.id));
+	function getCharacter(characterId) {
+		return CHARACTER_BY_ID[characterId] ?? null;
+	}
+	function getCharactersByCategory(category) {
+		return CHARACTERS.filter((character) => character.category === category);
+	}
+	function isGoodCharacter(characterId) {
+		return getCharacter(characterId)?.alignment === "good";
+	}
+			const PLAYER_COMPOSITIONS = Object.freeze({
+		5: Object.freeze({
+			townsfolk: 3,
+			outsider: 0,
+			minion: 1,
+			demon: 1
+		}),
+		6: Object.freeze({
+			townsfolk: 3,
+			outsider: 1,
+			minion: 1,
+			demon: 1
+		}),
+		7: Object.freeze({
+			townsfolk: 5,
+			outsider: 0,
+			minion: 1,
+			demon: 1
+		}),
+		8: Object.freeze({
+			townsfolk: 5,
+			outsider: 1,
+			minion: 1,
+			demon: 1
+		}),
+		9: Object.freeze({
+			townsfolk: 5,
+			outsider: 2,
+			minion: 1,
+			demon: 1
+		}),
+		10: Object.freeze({
+			townsfolk: 7,
+			outsider: 0,
+			minion: 2,
+			demon: 1
+		}),
+		11: Object.freeze({
+			townsfolk: 7,
+			outsider: 1,
+			minion: 2,
+			demon: 1
+		}),
+		12: Object.freeze({
+			townsfolk: 7,
+			outsider: 2,
+			minion: 2,
+			demon: 1
+		}),
+		13: Object.freeze({
+			townsfolk: 9,
+			outsider: 0,
+			minion: 3,
+			demon: 1
+		}),
+		14: Object.freeze({
+			townsfolk: 9,
+			outsider: 1,
+			minion: 3,
+			demon: 1
+		}),
+		15: Object.freeze({
+			townsfolk: 9,
+			outsider: 2,
+			minion: 3,
+			demon: 1
+		})
+	});
+	function getBaseComposition(playerCount) {
+		const composition = PLAYER_COMPOSITIONS[playerCount];
+		if (!composition) throw new RangeError("Trouble Brewing requires 5–15 non-Traveller players.");
+		return { ...composition };
+	}
+	function applyBaronAdjustment(composition) {
+		if (composition.townsfolk < 2) throw new RangeError("Baron adjustment requires at least two Townsfolk slots.");
+		return {
+			...composition,
+			townsfolk: composition.townsfolk - 2,
+			outsider: composition.outsider + 2
+		};
+	}
+			function createPlayer({ id, name, seat, actualCharacterId = null, perceivedCharacterId = actualCharacterId, alignment, alive = true, ghostVoteAvailable = true, abilityState = {}, metadata = {} }) {
+		const character = actualCharacterId ? getCharacter(actualCharacterId) : null;
+		return {
+			id: String(id),
+			name: String(name),
+			seat: Number(seat),
+			actualCharacterId,
+			perceivedCharacterId,
+			alignment: alignment ?? character?.alignment ?? "good",
+			alive: Boolean(alive),
+			ghostVoteAvailable: Boolean(ghostVoteAvailable),
+			abilityState: {
+				used: false,
+				...abilityState
+			},
+			metadata: { ...metadata }
+		};
+	}
+	function getPlayer(state, playerId) {
+		return state.players.find((player) => player.id === playerId) ?? null;
+	}
+	function getAlivePlayers(state) {
+		return state.players.filter((player) => player.alive);
+	}
+	function createDayState(day = 0) {
+		return {
+			day,
+			nominations: [],
+			nominatedPlayerIds: [],
+			nominatorPlayerIds: [],
+			nominationsClosed: false,
+			currentExecutionCandidateId: null,
+			currentHighestVoteCount: 0,
+			tied: false,
+			executionResolved: false,
+			executedPlayerId: null,
+			executedPlayerDied: false
+		};
+	}
+	function createNightState(night = 0) {
+		return {
+			night,
+			steps: [],
+			currentStepIndex: 0,
+			actedPlayerIds: [],
+			pendingTriggers: []
+		};
+	}
+	function createGameState({ players = [] } = {}) {
+		const normalizedPlayers = players.map((player) => createPlayer(player));
+		return {
+			version: 2,
+			phase: "setup",
+			night: 0,
+			day: 0,
+			players: normalizedPlayers,
+			currentDemonPlayerId: normalizedPlayers.find((player) => player.actualCharacterId === "imp" && player.alive)?.id ?? null,
+			statusEffects: [],
+			demonBluffs: [],
+			redHerringPlayerId: null,
+			dayState: createDayState(),
+			nightState: createNightState(),
+			events: [],
+			storytellerDecisions: [],
+			gameOver: false,
+			winningTeam: null,
+			winReason: null,
+			ui: {
+				legacyLog: []
+			}
+		};
+	}
+	function migrateV1State(legacyState) {
+		if (!legacyState || legacyState.version !== 1 || !Array.isArray(legacyState.players)) throw new TypeError("Expected a version 1 storyteller save.");
+		const legacySeats = legacyState.players.map(({ seat }) => seat);
+		const usesOneBasedSeats = legacySeats.length > 0 && [...legacySeats].sort((a, b) => a - b).every((seat, index) => seat === index + 1);
+		const state = createGameState({
+			players: legacyState.players.map((player) => createPlayer({
+				id: player.id,
+				name: player.name,
+				seat: usesOneBasedSeats ? player.seat - 1 : player.seat,
+				actualCharacterId: player.roleId || null,
+				perceivedCharacterId: player.roleId === "drunk" ? player.drunkFake || "washerwoman" : player.roleId || null,
+				alignment: getCharacter(player.roleId)?.alignment ?? "good",
+				alive: player.alive !== false,
+				ghostVoteAvailable: player.alive === false,
+				abilityState: {
+					used: player.roleId === "slayer" ? Boolean(legacyState.slayerUsed) : false,
+					firstNominationAvailable: player.roleId === "virgin" ? legacyState.firstVirginNomination !== false : void 0
+				}
+			}))
+		});
+		state.phase = [
+			"setup",
+			"day",
+			"night"
+		].includes(legacyState.phase) ? legacyState.phase : "setup";
+		state.night = Number.isInteger(legacyState.night) ? legacyState.night : 0;
+		state.day = Number.isInteger(legacyState.day) ? legacyState.day : 0;
+		state.currentDemonPlayerId = legacyState.demonId ?? state.currentDemonPlayerId;
+		state.redHerringPlayerId = legacyState.redHerringId ?? null;
+		const migratedRedHerring = state.players.find((player) => player.id === state.redHerringPlayerId);
+		const migratedFortuneTellerInPlay = state.players.some((player) => player.actualCharacterId === "fortune_teller");
+		if (state.redHerringPlayerId !== null && (!migratedFortuneTellerInPlay || !migratedRedHerring || migratedRedHerring.alignment !== "good" || getCharacter(migratedRedHerring.actualCharacterId)?.alignment !== "good")) state.redHerringPlayerId = null;
+		state.dayState = createDayState(state.day);
+		state.nightState = createNightState(state.night);
+		state.ui.legacyLog = Array.isArray(legacyState.log) ? structuredClone(legacyState.log) : [];
+		for (const targetPlayerId of legacyState.poisonedTonight ?? []) state.statusEffects.push({
+			id: `migrated-poison-${targetPlayerId}`,
+			type: "poisoned",
+			sourcePlayerId: null,
+			targetPlayerId,
+			startedAt: {
+				phase: state.phase,
+				night: state.night,
+				day: state.day
+			},
+			expiresAt: {
+				timing: "dusk",
+				night: state.night + 1
+			},
+			metadata: { migrated: true }
+		});
+		for (const targetPlayerId of legacyState.protectedTonight ?? []) state.statusEffects.push({
+			id: `migrated-protection-${targetPlayerId}`,
+			type: "monkProtected",
+			sourcePlayerId: null,
+			targetPlayerId,
+			startedAt: {
+				phase: state.phase,
+				night: state.night,
+				day: state.day
+			},
+			expiresAt: {
+				timing: "dawn",
+				night: state.night
+			},
+			metadata: { migrated: true }
+		});
+		return state;
+	}
+	function validateGameState(state) {
+		const errors = [];
+		if (!state || typeof state !== "object") return {
+			valid: false,
+			errors: ["State must be an object."]
+		};
+		if (state.version !== 2) errors.push(`Unsupported state version: ${state.version}.`);
+		if (![
+			"setup",
+			"night",
+			"day"
+		].includes(state.phase)) errors.push(`Invalid phase: ${state.phase}.`);
+		if (!Array.isArray(state.players)) errors.push("players must be an array.");
+		if (!Array.isArray(state.statusEffects)) errors.push("statusEffects must be an array.");
+		if (!Array.isArray(state.events)) errors.push("events must be an array.");
+		if (!Array.isArray(state.storytellerDecisions)) errors.push("storytellerDecisions must be an array.");
+		if (errors.length) return {
+			valid: false,
+			errors
+		};
+		const ids = /* @__PURE__ */ new Set();
+		const seats = /* @__PURE__ */ new Set();
+		for (const player of state.players) {
+			if (!player.id || ids.has(player.id)) errors.push(`Duplicate or missing player id: ${player.id}.`);
+			ids.add(player.id);
+			if (!Number.isInteger(player.seat) || player.seat < 0 || player.seat >= state.players.length || seats.has(player.seat)) errors.push(`Duplicate or invalid seat: ${player.seat}.`);
+			seats.add(player.seat);
+			if (player.actualCharacterId !== null && !CHARACTER_IDS.includes(player.actualCharacterId)) errors.push(`Invalid actual character: ${player.actualCharacterId}.`);
+			if (player.perceivedCharacterId !== null && !CHARACTER_IDS.includes(player.perceivedCharacterId)) errors.push(`Invalid perceived character: ${player.perceivedCharacterId}.`);
+			if (!["good", "evil"].includes(player.alignment)) errors.push(`Invalid alignment for ${player.id}.`);
+			if (typeof player.alive !== "boolean" || typeof player.ghostVoteAvailable !== "boolean") errors.push(`Invalid life/vote state for ${player.id}.`);
+			if (player.actualCharacterId === "drunk" && getCharacter(player.perceivedCharacterId)?.category !== "townsfolk") errors.push(`Drunk ${player.id} must perceive a Townsfolk character.`);
+		}
+		if (state.currentDemonPlayerId !== null) {
+			const demon = state.players.find((player) => player.id === state.currentDemonPlayerId);
+			if (!demon || demon.actualCharacterId !== "imp") errors.push("currentDemonPlayerId must reference an Imp.");
+		}
+		for (const effect of state.statusEffects) {
+			if (!effect.id || !["poisoned", "monkProtected"].includes(effect.type)) errors.push(`Invalid status effect ${effect.id ?? "(missing id)"}.`);
+			if (!ids.has(effect.targetPlayerId)) errors.push(`Status target does not exist: ${effect.targetPlayerId}.`);
+			if (effect.sourcePlayerId !== null && !ids.has(effect.sourcePlayerId)) errors.push(`Status source does not exist: ${effect.sourcePlayerId}.`);
+		}
+		if (!Array.isArray(state.demonBluffs) || state.demonBluffs.some((id) => !isGoodCharacter(id))) errors.push("demonBluffs must contain only valid good character ids.");
+		else {
+			if (new Set(state.demonBluffs).size !== state.demonBluffs.length) errors.push("demonBluffs must be unique.");
+			const reserved = new Set(state.players.map(({ actualCharacterId }) => actualCharacterId).filter(Boolean));
+			if (state.demonBluffs.some((id) => reserved.has(id))) errors.push("demonBluffs cannot contain setup-reserved characters.");
+		}
+		if (state.redHerringPlayerId !== null) {
+			const redHerring = state.players.find((player) => player.id === state.redHerringPlayerId);
+			if (!state.players.some((player) => player.actualCharacterId === "fortune_teller") || !redHerring || redHerring.actualCharacterId === "fortune_teller" || redHerring.alignment !== "good" || getCharacter(redHerring.actualCharacterId)?.alignment !== "good") errors.push("redHerringPlayerId must reference a good non-Fortune-Teller player.");
+		}
+		if (state.gameOver && (!["good", "evil"].includes(state.winningTeam) || !state.winReason)) errors.push("Completed games need winningTeam and winReason.");
+		if (!state.gameOver && (state.winningTeam !== null || state.winReason !== null)) errors.push("Active games cannot have a winner.");
+		return {
+			valid: errors.length === 0,
+			errors
+		};
+	}
+			const EVENT_TYPES = Object.freeze({
+		GAME_STARTED: "GAME_STARTED",
+		NIGHT_STARTED: "NIGHT_STARTED",
+		DAY_STARTED: "DAY_STARTED",
+		CHARACTER_CHANGED: "CHARACTER_CHANGED",
+		STATUS_APPLIED: "STATUS_APPLIED",
+		STATUS_EXPIRED: "STATUS_EXPIRED",
+		PLAYER_SELECTED: "PLAYER_SELECTED",
+		NOMINATION_STARTED: "NOMINATION_STARTED",
+		VOTE_CAST: "VOTE_CAST",
+		NOMINATION_RESOLVED: "NOMINATION_RESOLVED",
+		NOMINATION_DETAIL: "NOMINATION_DETAIL",
+		EXECUTION: "EXECUTION",
+		EXECUTION_DETAIL: "EXECUTION_DETAIL",
+		DEATH: "DEATH",
+		DEATH_DETAIL: "DEATH_DETAIL",
+		RESURRECTION: "RESURRECTION",
+		ABILITY_USED: "ABILITY_USED",
+		ABILITY_RESOLVED: "ABILITY_RESOLVED",
+		INFORMATION_SHOWN: "INFORMATION_SHOWN",
+		NIGHT_INFORMATION_SHOWN: "NIGHT_INFORMATION_SHOWN",
+		PRIVATE_NOTIFICATION: "PRIVATE_NOTIFICATION",
+		STORYTELLER_DECISION: "STORYTELLER_DECISION",
+		VICTORY: "VICTORY",
+		GAME_ENDED: "GAME_ENDED"
+	});
+	function appendEvent(state, type, payload = {}, visibility = "storyteller") {
+		const event = {
+			id: `e${state.events.length + 1}`,
+			type,
+			phase: state.phase,
+			night: state.night,
+			day: state.day,
+			visibility,
+			payload: structuredClone(payload)
+		};
+		state.events.push(event);
+		return event;
+	}
+	function getEventsByVisibility(state, visibility) {
+		return state.events.filter((event) => event.visibility === visibility);
+	}
+	function getPublicEvents(state) {
+		return getEventsByVisibility(state, "public");
+	}
+			function resurrectPlayer(state, playerId) {
+		const player = getPlayer(state, playerId);
+		if (!player) throw new RangeError(`Unknown player: ${playerId}.`);
+		if (player.alive) return {
+			resurrected: false,
+			reason: "already_alive"
+		};
+		player.alive = true;
+		if (player.actualCharacterId === "imp") state.currentDemonPlayerId = player.id;
+		state.gameOver = false;
+		state.winningTeam = null;
+		state.winReason = null;
+		appendEvent(state, EVENT_TYPES.RESURRECTION, {
+			playerId,
+			reason: "storyteller_manual_correction"
+		}, "public");
+		return {
+			resurrected: true,
+			playerId,
+			ghostVoteAvailable: player.ghostVoteAvailable
+		};
+	}
+			function applyStatusEffect(state, { type, sourcePlayerId = null, targetPlayerId, expiresAt, metadata = {} }) {
+		if (!["poisoned", "monkProtected"].includes(type)) throw new TypeError(`Unsupported status effect: ${type}.`);
+		if (!getPlayer(state, targetPlayerId)) throw new RangeError(`Unknown target player: ${targetPlayerId}.`);
+		if (sourcePlayerId !== null && !getPlayer(state, sourcePlayerId)) throw new RangeError(`Unknown source player: ${sourcePlayerId}.`);
+		state.statusEffects = state.statusEffects.filter((effect) => !(effect.type === type && effect.targetPlayerId === targetPlayerId && effect.sourcePlayerId === sourcePlayerId));
+		const effect = {
+			id: `s${state.events.length + state.statusEffects.length + 1}`,
+			type,
+			sourcePlayerId,
+			targetPlayerId,
+			startedAt: {
+				phase: state.phase,
+				night: state.night,
+				day: state.day
+			},
+			expiresAt: structuredClone(expiresAt),
+			metadata: { ...metadata }
+		};
+		state.statusEffects.push(effect);
+		appendEvent(state, EVENT_TYPES.STATUS_APPLIED, { effect });
+		return effect;
+	}
+	function expireStatusEffects(state, timing) {
+		const expired = state.statusEffects.filter((effect) => Object.entries(timing).every(([key, value]) => effect.expiresAt?.[key] === value));
+		state.statusEffects = state.statusEffects.filter((effect) => !expired.includes(effect));
+		for (const effect of expired) appendEvent(state, EVENT_TYPES.STATUS_EXPIRED, {
+			effectId: effect.id,
+			type: effect.type,
+			targetPlayerId: effect.targetPlayerId
+		});
+		return expired;
+	}
+	function removeStatusEffectsFromSource(state, sourcePlayerId) {
+		const removed = state.statusEffects.filter((effect) => effect.sourcePlayerId === sourcePlayerId);
+		state.statusEffects = state.statusEffects.filter((effect) => effect.sourcePlayerId !== sourcePlayerId);
+		for (const effect of removed) appendEvent(state, EVENT_TYPES.STATUS_EXPIRED, {
+			effectId: effect.id,
+			type: effect.type,
+			targetPlayerId: effect.targetPlayerId,
+			sourcePlayerId,
+			reason: "source_lost_ability"
+		});
+		return removed;
+	}
+	function hasStatusEffect(state, playerId, type) {
+		return state.statusEffects.some((effect) => effect.targetPlayerId === playerId && effect.type === type);
+	}
+	function isPoisoned(state, playerId) {
+		return hasStatusEffect(state, playerId, "poisoned");
+	}
+	function isMonkProtected(state, playerId) {
+		return hasStatusEffect(state, playerId, "monkProtected");
+	}
+			const FIRST_NIGHT_ORDER = Object.freeze([
+		"minion_info",
+		"demon_info",
+		"poisoner",
+		"spy",
+		"washerwoman",
+		"librarian",
+		"investigator",
+		"chef",
+		"empath",
+		"fortune_teller",
+		"butler"
+	]);
+	const OTHER_NIGHT_ORDER = Object.freeze([
+		"poisoner",
+		"monk",
+		"spy",
+		"scarlet_woman",
+		"imp",
+		"undertaker",
+		"empath",
+		"fortune_teller",
+		"butler",
+	]);
+			function hasWorkingAbility(state, playerId, { expectedCharacterId = null, allowDeadTrigger = false } = {}) {
+		const player = getPlayer(state, playerId);
+		if (!player) return false;
+		if (!player.alive && !allowDeadTrigger) return false;
+		if (player.actualCharacterId === "drunk") return false;
+		if (expectedCharacterId && player.actualCharacterId !== expectedCharacterId) return false;
+		if (isPoisoned(state, playerId)) return false;
+		return true;
+	}
+			const TARGETING_RULES = Object.freeze({
+		poisoner: Object.freeze({
+			count: 1,
+			allowSelf: true,
+			allowAlive: true,
+			allowDead: true,
+			distinct: true
+		}),
+		fortune_teller: Object.freeze({
+			count: 2,
+			allowSelf: true,
+			allowAlive: true,
+			allowDead: true,
+			distinct: true
+		}),
+		monk: Object.freeze({
+			count: 1,
+			allowSelf: false,
+			allowAlive: true,
+			allowDead: true,
+			distinct: true
+		}),
+		butler: Object.freeze({
+			count: 1,
+			allowSelf: false,
+			allowAlive: true,
+			allowDead: true,
+			distinct: true
+		}),
+		imp: Object.freeze({
+			count: 1,
+			allowSelf: true,
+			allowAlive: true,
+			allowDead: true,
+			distinct: true
+		}),
+		ravenkeeper: Object.freeze({
+			count: 1,
+			allowSelf: true,
+			allowAlive: true,
+			allowDead: true,
+			distinct: true
+		}),
+		slayer: Object.freeze({
+			count: 1,
+			allowSelf: true,
+			allowAlive: true,
+			allowDead: true,
+			distinct: true
+		})
+	});
+	function getLegalTargets(state, actorPlayerId, abilityContext) {
+		if (state.gameOver) return [];
+		if (!getPlayer(state, actorPlayerId)) throw new RangeError(`Unknown actor: ${actorPlayerId}.`);
+		const rules = TARGETING_RULES[abilityContext];
+		if (!rules) throw new TypeError(`Unknown targeting context: ${abilityContext}.`);
+		return state.players.filter((player) => {
+			if (!rules.allowSelf && player.id === actorPlayerId) return false;
+			if (player.alive && !rules.allowAlive) return false;
+			if (!player.alive && !rules.allowDead) return false;
+			return true;
+		}).map((player) => player.id);
+	}
+	function validateTargets(state, actorPlayerId, abilityContext, targetPlayerIds) {
+		const rules = TARGETING_RULES[abilityContext];
+		if (!rules) throw new TypeError(`Unknown targeting context: ${abilityContext}.`);
+		if (!Array.isArray(targetPlayerIds) || targetPlayerIds.length !== rules.count) return {
+			valid: false,
+			reason: `requires_${rules.count}_targets`
+		};
+		if (rules.distinct && new Set(targetPlayerIds).size !== targetPlayerIds.length) return {
+			valid: false,
+			reason: "targets_must_be_distinct"
+		};
+		const legal = new Set(getLegalTargets(state, actorPlayerId, abilityContext));
+		const illegalTargetId = targetPlayerIds.find((id) => !legal.has(id));
+		return illegalTargetId ? {
+			valid: false,
+			reason: "illegal_target",
+			illegalTargetId
+		} : { valid: true };
+	}
+	function assertLegalTargets(state, actorPlayerId, abilityContext, targetPlayerIds) {
+		const result = validateTargets(state, actorPlayerId, abilityContext, targetPlayerIds);
+		if (!result.valid) throw new RangeError(`Illegal ${abilityContext} target selection: ${result.reason}.`);
+		return targetPlayerIds;
+	}
+			function makeCharacterStep(state, player, presentedCharacterId) {
+		return {
+			stepId: `night-${state.night}-${player.id}-${presentedCharacterId}`,
+			actorPlayerId: player.id,
+			presentedCharacterId,
+			actualCharacterId: player.actualCharacterId,
+			phase: "night",
+			abilityFunctional: hasWorkingAbility(state, player.id, { expectedCharacterId: presentedCharacterId }),
+			interactionType: TARGETING_RULES[presentedCharacterId] ? "player_choice" : "information_or_view",
+			targetRules: TARGETING_RULES[presentedCharacterId] ?? null,
+			metadata: {}
+		};
+	}
+	function buildNightSteps(state) {
+		if (state.night < 1) throw new RangeError("Night number must be at least 1.");
+		const order = state.night === 1 ? FIRST_NIGHT_ORDER : OTHER_NIGHT_ORDER;
+		const steps = [];
+		for (const timingId of order) {
+			if (timingId === "minion_info") {
+				if (state.players.length >= 7) steps.push({
+					stepId: `night-${state.night}-minion-info`,
+					interactionType: "minion_info",
+					phase: "night"
+				});
+				continue;
+			}
+			if (timingId === "demon_info") {
+				if (state.players.length >= 7) steps.push({
+					stepId: `night-${state.night}-demon-info`,
+					interactionType: "demon_info",
+					phase: "night"
+				});
+				continue;
+			}
+			// A Scarlet Woman transformed during the day learns this at her normal other-night position.
+			if (timingId === "scarlet_woman") {
+				for (const player of state.players) {
+					const notification = player.metadata.pendingNewImpNotification;
+					if (!notification) continue;
+					delete player.metadata.pendingNewImpNotification;
+					steps.push({
+						...notification,
+						stepId: `night-${state.night}-${player.id}-new-imp-info`
+					});
+				}
+				continue;
+			}
+			if (timingId === "undertaker" && !(state.dayState?.executionResolved && state.dayState.executedPlayerDied)) continue;
+			const actors = state.players.filter((player) => player.alive && player.perceivedCharacterId === timingId);
+			for (const actor of actors) {
+				if (timingId === "imp" && Number(actor.metadata.skipImpUntilNight ?? 0) >= state.night) continue;
+				steps.push(makeCharacterStep(state, actor, timingId));
+			}
+		}
+		return steps;
+	}
+	function getCurrentNightStep(state) {
+		if (state.gameOver) return null;
+		while (state.nightState.currentStepIndex < state.nightState.steps.length) {
+			const step = state.nightState.steps[state.nightState.currentStepIndex];
+			if (!step.actorPlayerId) return step;
+			const actor = getPlayer(state, step.actorPlayerId);
+			if (step.interactionType === "new_imp_info") {
+				if (actor?.alive && actor.actualCharacterId === "imp") return step;
+				state.nightState.currentStepIndex += 1;
+				continue;
+			}
+			const isDeathTrigger = step.metadata?.trigger === "died_at_night";
+			const stillPresentsCharacter = actor?.perceivedCharacterId === step.presentedCharacterId;
+			if (actor && (actor.alive || isDeathTrigger) && stillPresentsCharacter) {
+				step.abilityFunctional = hasWorkingAbility(state, actor.id, {
+					expectedCharacterId: step.presentedCharacterId,
+					allowDeadTrigger: isDeathTrigger
+				});
+				return step;
+			}
+			state.nightState.currentStepIndex += 1;
+		}
+		return null;
+	}
+	function createNewImpInfoStep(state, playerId, sourceCharacterId = null) {
+		const player = getPlayer(state, playerId);
+		if (!player || player.actualCharacterId !== "imp") return null;
+		return {
+			stepId: `night-${state.night}-${player.id}-new-imp-info`,
+			actorPlayerId: player.id,
+			presentedCharacterId: "imp",
+			actualCharacterId: "imp",
+			phase: "night",
+			abilityFunctional: true,
+			interactionType: "new_imp_info",
+			targetRules: null,
+			visibility: "private_player",
+			metadata: {
+				notification: "you_are_the_imp",
+				sourceCharacterId
+			}
+		};
+	}
+	function createRavenkeeperDeathStep(state, playerId) {
+		const player = getPlayer(state, playerId);
+		if (!player || player.perceivedCharacterId !== "ravenkeeper") return null;
+		const step = makeCharacterStep(state, player, "ravenkeeper");
+		step.stepId = `night-${state.night}-${player.id}-ravenkeeper-death`;
+		step.abilityFunctional = hasWorkingAbility(state, player.id, {
+			expectedCharacterId: "ravenkeeper",
+			allowDeadTrigger: true
+		});
+		step.metadata.trigger = "died_at_night";
+		return step;
+	}
+			function endGame(state, winningTeam, winReason) {
+		if (state.gameOver) return {
+			gameOver: true,
+			winningTeam: state.winningTeam,
+			winReason: state.winReason
+		};
+		state.gameOver = true;
+		state.winningTeam = winningTeam;
+		state.winReason = winReason;
+		appendEvent(state, EVENT_TYPES.VICTORY, {
+			winningTeam,
+			winReason
+		}, "public");
+		appendEvent(state, EVENT_TYPES.GAME_ENDED, {
+			winningTeam,
+			winReason
+		}, "public");
+		return {
+			gameOver: true,
+			winningTeam,
+			winReason
+		};
+	}
+	function evaluateVictory(state, context = {}) {
+		if (state.gameOver) return {
+			gameOver: true,
+			winningTeam: state.winningTeam,
+			winReason: state.winReason
+		};
+		if (context.saintExecutedPlayerId && hasWorkingAbility(state, context.saintExecutedPlayerId, {
+			expectedCharacterId: "saint",
+			allowDeadTrigger: true
+		})) return endGame(state, state.players.find((player) => player.id === context.saintExecutedPlayerId).alignment === "good" ? "evil" : "good", "saint_executed");
+		if (state.phase !== "setup") {
+			if (!state.players.some((player) => player.alive && player.actualCharacterId === "imp")) return endGame(state, "good", "demon_dead");
+			if (getAlivePlayers(state).length <= 2) return endGame(state, "evil", "two_players_alive");
+		}
+		if (context.timing === "dusk" && getAlivePlayers(state).length === 3 && !state.dayState.executionResolved) {
+			const mayor = state.players.find((player) => player.alive && player.actualCharacterId === "mayor");
+			if (mayor && hasWorkingAbility(state, mayor.id, { expectedCharacterId: "mayor" })) return endGame(state, mayor.alignment, "mayor_no_execution");
+		}
+		return {
+			gameOver: false,
+			winningTeam: null,
+			winReason: null
+		};
+	}
+			function transformCharacter(state, playerId, characterId, { skipCurrentNightAction = false } = {}) {
+		const player = getPlayer(state, playerId);
+		if (!player) throw new RangeError(`Unknown player: ${playerId}.`);
+		const previousCharacterId = player.actualCharacterId;
+		removeStatusEffectsFromSource(state, playerId);
+		player.actualCharacterId = characterId;
+		player.perceivedCharacterId = characterId;
+		player.abilityState = { used: false };
+		if (skipCurrentNightAction) player.metadata.skipImpUntilNight = state.night;
+		if (characterId === "imp") state.currentDemonPlayerId = player.id;
+		appendEvent(state, EVENT_TYPES.CHARACTER_CHANGED, {
+			playerId,
+			previousCharacterId,
+			characterId
+		});
+		if (characterId === "imp") {
+			appendEvent(state, EVENT_TYPES.PRIVATE_NOTIFICATION, {
+				recipientPlayerId: player.id,
+				notificationType: "new_imp",
+				characterId: "imp"
+			}, "private_player");
+			const notificationStep = createNewImpInfoStep(state, player.id, previousCharacterId);
+			if (state.phase === "night") state.nightState.pendingTriggers.push(notificationStep);
+			else player.metadata.pendingNewImpNotification = notificationStep;
+		}
+		return player;
+	}
+	function getFunctionalScarletWoman(state) {
+		return state.players.find((player) => player.alive && player.actualCharacterId === "scarlet_woman" && hasWorkingAbility(state, player.id, { expectedCharacterId: "scarlet_woman" })) ?? null;
+	}
+	function resolveDeath(state, playerId, { cause, sourcePlayerId = null, suppressDemonReplacement = false, suppressVictory = false } = {}) {
+		if (state.gameOver) throw new Error("Cannot resolve death after game over.");
+		const player = getPlayer(state, playerId);
+		if (!player) throw new RangeError(`Unknown player: ${playerId}.`);
+		if (!player.alive) return {
+			died: false,
+			reason: "already_dead",
+			playerId
+		};
+		const aliveBefore = getAlivePlayers(state).length;
+		const wasDemon = player.actualCharacterId === "imp" && state.currentDemonPlayerId === player.id;
+		player.alive = false;
+		player.ghostVoteAvailable = true;
+		removeStatusEffectsFromSource(state, player.id);
+		appendEvent(state, EVENT_TYPES.DEATH, { playerId }, "public");
+		appendEvent(state, EVENT_TYPES.DEATH_DETAIL, {
+			playerId,
+			cause,
+			sourcePlayerId
+		});
+		const ravenkeeperStep = state.phase === "night" ? createRavenkeeperDeathStep(state, player.id) : null;
+		if (ravenkeeperStep) state.nightState.pendingTriggers.push(ravenkeeperStep);
+		let transformedPlayerId = null;
+		if (wasDemon) {
+			state.currentDemonPlayerId = null;
+			if (!suppressDemonReplacement && aliveBefore >= 5) {
+				const scarletWoman = getFunctionalScarletWoman(state);
+				if (scarletWoman) {
+					transformCharacter(state, scarletWoman.id, "imp", { skipCurrentNightAction: state.phase === "night" });
+					transformedPlayerId = scarletWoman.id;
+				}
+			}
+		}
+		const victory = suppressVictory || transformedPlayerId ? { gameOver: false } : evaluateVictory(state, {
+			type: "death",
+			cause,
+			playerId
+		});
+		return {
+			died: true,
+			playerId,
+			wasDemon,
+			aliveBefore,
+			transformedPlayerId,
+			ravenkeeperStep,
+			victory
+		};
+	}
+			function resolveExecution(state, playerId, { reason = "daily_execution" } = {}) {
+		if (state.phase !== "day") throw new Error("Executions can only resolve during the day.");
+		if (state.dayState.executionResolved) throw new Error("An execution has already resolved today.");
+		const player = getPlayer(state, playerId);
+		if (!player) throw new RangeError(`Unknown execution target: ${playerId}.`);
+		const wasAlive = player.alive;
+		state.dayState.executionResolved = true;
+		state.dayState.executedPlayerId = playerId;
+		state.dayState.executedPlayerDied = wasAlive;
+		state.dayState.nominationsClosed = true;
+		appendEvent(state, EVENT_TYPES.EXECUTION, {
+			playerId,
+			causedDeath: wasAlive
+		}, "public");
+		appendEvent(state, EVENT_TYPES.EXECUTION_DETAIL, {
+			playerId,
+			reason
+		});
+		const death = wasAlive ? resolveDeath(state, playerId, {
+			cause: "execution",
+			suppressVictory: true
+		}) : {
+			died: false,
+			reason: "already_dead",
+			playerId
+		};
+		let victory = evaluateVictory(state, { saintExecutedPlayerId: wasAlive ? playerId : null });
+		if (!victory.gameOver) victory = evaluateVictory(state, {
+			type: "execution",
+			playerId
+		});
+		return {
+			playerId,
+			executionOccurred: true,
+			causedDeath: wasAlive,
+			death,
+			victory
+		};
+	}
+	function getUndertakerSubject(state) {
+		return state.dayState.executionResolved && state.dayState.executedPlayerDied ? state.dayState.executedPlayerId : null;
+	}
+			function startDay(state) {
+		if (state.gameOver) throw new Error("Cannot start a day after game over.");
+		state.phase = "day";
+		state.day += 1;
+		state.dayState = createDayState(state.day);
+		appendEvent(state, EVENT_TYPES.DAY_STARTED, { day: state.day }, "public");
+		return state.dayState;
+	}
+	function closeNominations(state) {
+		state.dayState.nominationsClosed = true;
+		const candidateId = state.dayState.currentExecutionCandidateId;
+		if (candidateId && !state.dayState.tied) return resolveExecution(state, candidateId);
+		return {
+			executionOccurred: false,
+			reason: state.dayState.tied ? "tie" : "no_candidate"
+		};
+	}
+	function endDayAtDusk(state) {
+		if (state.phase !== "day") throw new Error("Dusk can only occur after a day.");
+		const victory = evaluateVictory(state, { timing: "dusk" });
+		expireStatusEffects(state, {
+			timing: "dusk",
+			night: state.night + 1
+		});
+		return victory;
+	}
+			function createStorytellerDecision(state, { type, context = {}, legalOptions, visibility = "storyteller" }) {
+		if (!Array.isArray(legalOptions) || legalOptions.length === 0) throw new TypeError("A storyteller decision needs at least one legal option.");
+		const ids = new Set(legalOptions.map((option) => option.id));
+		if (ids.size !== legalOptions.length || ids.has(void 0)) throw new TypeError("Storyteller option ids must be present and unique.");
+		const decision = {
+			id: `d${state.storytellerDecisions.length + 1}`,
+			type,
+			context: structuredClone(context),
+			legalOptions: structuredClone(legalOptions),
+			selectedOptionId: null,
+			status: "pending",
+			visibility
+		};
+		state.storytellerDecisions.push(decision);
+		return decision;
+	}
+	function chooseStorytellerOption(state, decisionId, optionId) {
+		const decision = state.storytellerDecisions.find((candidate) => candidate.id === decisionId);
+		if (!decision) throw new RangeError(`Unknown storyteller decision: ${decisionId}.`);
+		if (decision.status !== "pending") throw new Error(`Decision ${decisionId} is already resolved.`);
+		const option = decision.legalOptions.find((candidate) => candidate.id === optionId);
+		if (!option) throw new RangeError(`Option ${optionId} is not legal for decision ${decisionId}.`);
+		decision.selectedOptionId = optionId;
+		decision.status = "resolved";
+		appendEvent(state, EVENT_TYPES.STORYTELLER_DECISION, {
+			decisionId,
+			decisionType: decision.type,
+			optionId,
+			option: structuredClone(option)
+		});
+		return structuredClone(option);
+	}
+			const SAVE_KEY_V2 = "autov1_botc_save_v2";
+	const LEGACY_SAVE_KEY = "autov1_botc_save_v1";
+	function saveGameState(storage, state) {
+		const validation = validateGameState(state);
+		if (!validation.valid) throw new TypeError(`Refusing to save invalid state: ${validation.errors.join(" ")}`);
+		storage.setItem(SAVE_KEY_V2, JSON.stringify(state));
+	}
+	function loadGameState(storage) {
+		const rawV2 = storage.getItem(SAVE_KEY_V2);
+		if (rawV2) try {
+			const state = JSON.parse(rawV2);
+			const storedUi = state.ui ?? {};
+			state.ui = {
+				legacyLog: [],
+				...storedUi
+			};
+			delete state.ui.hideRoles;
+			state.demonBluffs ??= [];
+			let warning = null;
+			if (state.redHerringPlayerId !== null) {
+				const redHerring = state.players?.find((player) => player.id === state.redHerringPlayerId);
+				if (!state.players?.some((player) => player.actualCharacterId === "fortune_teller") || !redHerring || redHerring.alignment !== "good" || getCharacter(redHerring.actualCharacterId)?.alignment !== "good") {
+					state.redHerringPlayerId = null;
+					warning = "The saved Fortune Teller red herring was invalid and has been cleared.";
+				}
+			}
+			const validation = validateGameState(state);
+			if (validation.valid) return {
+				state,
+				migrated: false,
+				warning
+			};
+			return {
+				state: createGameState(),
+				migrated: false,
+				warning: `存档校验失败：${validation.errors.join(" ")}`
+			};
+		} catch {
+			return {
+				state: createGameState(),
+				migrated: false,
+				warning: "存档不是有效 JSON，已安全重置。"
+			};
+		}
+		const rawV1 = storage.getItem(LEGACY_SAVE_KEY);
+		if (!rawV1) return {
+			state: createGameState(),
+			migrated: false,
+			warning: null
+		};
+		try {
+			const state = migrateV1State(JSON.parse(rawV1));
+			const validation = validateGameState(state);
+			if (!validation.valid) throw new TypeError(validation.errors.join(" "));
+			saveGameState(storage, state);
+			return {
+				state,
+				migrated: true,
+				warning: "旧版存档已迁移到 V2。"
+			};
+		} catch (error) {
+			return {
+				state: createGameState(),
+				migrated: false,
+				warning: `旧版存档无法迁移：${error.message}`
+			};
+		}
+	}
+			function takeRandom(items, count, random) {
+		const pool = [...items];
+		const selected = [];
+		while (selected.length < count) {
+			if (!pool.length) throw new RangeError("Not enough unique characters for setup.");
+			const index = Math.floor(random() * pool.length);
+			selected.push(pool.splice(Math.min(index, pool.length - 1), 1)[0]);
+		}
+		return selected;
+	}
+	function fillCategory(category, count, forcedIds, random) {
+		const forced = forcedIds.filter((id) => getCharacter(id)?.category === category);
+		if (forced.length > count) throw new RangeError(`Too many forced ${category} characters.`);
+		const candidates = getCharactersByCategory(category).map(({ id }) => id).filter((id) => !forcedIds.includes(id));
+		return [...forced, ...takeRandom(candidates, count - forced.length, random)];
+	}
+	function validateSetupCharacters(characterIds, playerCount) {
+		const errors = [];
+		if (playerCount < 5 || playerCount > 15) errors.push("Trouble Brewing requires 5–15 non-Traveller players.");
+		if (characterIds.length !== playerCount) errors.push("Character count must match player count.");
+		if (new Set(characterIds).size !== characterIds.length) errors.push("Characters must be unique.");
+		if (characterIds.some((id) => !getCharacter(id))) errors.push("Every character id must belong to Trouble Brewing.");
+		const composition = characterIds.reduce((counts, id) => {
+			const category = getCharacter(id)?.category;
+			if (category) counts[category] += 1;
+			return counts;
+		}, {
+			townsfolk: 0,
+			outsider: 0,
+			minion: 0,
+			demon: 0
+		});
+		if (playerCount >= 5 && playerCount <= 15) {
+			const expected = characterIds.includes("baron") ? applyBaronAdjustment(getBaseComposition(playerCount)) : getBaseComposition(playerCount);
+			for (const category of Object.keys(expected)) if (composition[category] !== expected[category]) errors.push(`${category} count must be ${expected[category]}.`);
+		}
+		return {
+			valid: errors.length === 0,
+			errors,
+			composition
+		};
+	}
+	function generateCharacterSet(playerCount, { forcedCharacterIds = [], random = Math.random } = {}) {
+		if (new Set(forcedCharacterIds).size !== forcedCharacterIds.length) throw new RangeError("Forced characters must be unique.");
+		if (forcedCharacterIds.some((id) => !getCharacter(id))) throw new RangeError("Unknown forced character.");
+		const base = getBaseComposition(playerCount);
+		const forcedMinions = forcedCharacterIds.filter((id) => getCharacter(id).category === "minion");
+		const minions = fillCategory("minion", base.minion, forcedCharacterIds, random);
+		if (!forcedMinions.length && minions.includes("baron")) {}
+		const composition = minions.includes("baron") || forcedCharacterIds.includes("baron") ? applyBaronAdjustment(base) : base;
+		const ids = [
+			...fillCategory("townsfolk", composition.townsfolk, forcedCharacterIds, random),
+			...fillCategory("outsider", composition.outsider, forcedCharacterIds, random),
+			...minions,
+			...fillCategory("demon", composition.demon, forcedCharacterIds, random)
+		];
+		const validation = validateSetupCharacters(ids, playerCount);
+		if (!validation.valid) throw new RangeError(validation.errors.join(" "));
+		return ids;
+	}
+	function generateDemonBluffs(characterIds, { random = Math.random } = {}) {
+		return takeRandom(getLegalDemonBluffCharacterIds(characterIds), 3, random);
+	}
+	function getLegalDemonBluffCharacterIds(characterIds) {
+		const reserved = /* @__PURE__ */ new Set(characterIds);
+		return CHARACTERS.filter(({ alignment, id }) => alignment === "good" && !reserved.has(id)).map(({ id }) => id);
+	}
+	function validateDemonBluffs(state) {
+		const errors = [];
+		const bluffs = Array.isArray(state.demonBluffs) ? state.demonBluffs : [];
+		const requiredCount = state.players.length >= 7 ? 3 : 0;
+		if (bluffs.length !== requiredCount) errors.push(`Demon bluffs must contain exactly ${requiredCount} characters for this player count.`);
+		if (new Set(bluffs).size !== bluffs.length) errors.push("Demon bluffs must be unique.");
+		const actual = state.players.map(({ actualCharacterId }) => actualCharacterId).filter(Boolean);
+		const legal = new Set(getLegalDemonBluffCharacterIds(actual));
+		if (bluffs.some((id) => !legal.has(id))) errors.push("Demon bluffs must be good characters that are not reserved by the setup.");
+		return {
+			valid: errors.length === 0,
+			errors
+		};
+	}
+	function createRandomSetup(playerNames, { forcedCharacterIds = [], random = Math.random } = {}) {
+		const characterIds = generateCharacterSet(playerNames.length, {
+			forcedCharacterIds,
+			random
+		});
+		const actualTownsfolk = new Set(characterIds.filter((id) => getCharacter(id).category === "townsfolk"));
+		const fakePool = getCharactersByCategory("townsfolk").map(({ id }) => id).filter((id) => !actualTownsfolk.has(id));
+		const drunkFake = characterIds.includes("drunk") ? takeRandom(fakePool, 1, random)[0] : null;
+		const shuffled = takeRandom(characterIds, characterIds.length, random);
+		const state = createGameState({ players: playerNames.map((name, seat) => {
+			const actualCharacterId = shuffled[seat];
+			return createPlayer({
+				id: `p${seat + 1}`,
+				name,
+				seat,
+				actualCharacterId,
+				perceivedCharacterId: actualCharacterId === "drunk" ? drunkFake : actualCharacterId
+			});
+		}) });
+		state.demonBluffs = [];
+		return state;
+	}
+	function option(id, alignment, characterId, registered, registrationType = null) {
+		return {
+			id,
+			alignment,
+			characterId,
+			registered,
+			registrationType
+		};
+	}
+	function acceptsAlignment(interaction, alignment) {
+		return Boolean(interaction.detectAlignments?.includes(alignment));
+	}
+	function acceptsCharacter(interaction, character) {
+		if (!interaction.detectCategories && !interaction.detectCharacterIds) return false;
+		return Boolean(interaction.detectCategories?.includes(character.category) || interaction.detectCharacterIds?.includes(character.id));
+	}
+	function getLegalRegistrations(state, interaction) {
+		const target = getPlayer(state, interaction.targetPlayerId);
+		if (!target) throw new RangeError(`Unknown registration target: ${interaction.targetPlayerId}.`);
+		if (!getCharacter(target.actualCharacterId)) throw new TypeError(`Target ${target.id} has no character.`);
+		const options = [option("actual", target.alignment, target.actualCharacterId, false)];
+		if (target.actualCharacterId === "spy" && hasWorkingAbility(state, target.id, {
+			expectedCharacterId: "spy",
+			allowDeadTrigger: true
+		})) {
+			if (acceptsAlignment(interaction, "good")) options.push(option("spy:good", "good", "spy", true, "alignment"));
+			for (const character of CHARACTERS.filter((candidate) => ["townsfolk", "outsider"].includes(candidate.category))) if (acceptsCharacter(interaction, character)) options.push(option(`spy:${character.id}`, "good", character.id, true, "character"));
+		}
+		if (target.actualCharacterId === "recluse" && hasWorkingAbility(state, target.id, {
+			expectedCharacterId: "recluse",
+			allowDeadTrigger: true
+		})) {
+			if (acceptsAlignment(interaction, "evil")) options.push(option("recluse:evil", "evil", "recluse", true, "alignment"));
+			for (const character of CHARACTERS.filter((candidate) => ["minion", "demon"].includes(candidate.category))) if (acceptsCharacter(interaction, character)) options.push(option(`recluse:${character.id}`, "evil", character.id, true, "character"));
+		}
+		return options.map((candidate) => candidate.registered ? {
+			...candidate,
+			sourceCharacterId: target.actualCharacterId
+		} : candidate).filter((candidate, index, all) => index === all.findIndex((other) => other.id === candidate.id));
+	}
+	function selectRegistration(state, interaction, optionId) {
+		const selected = getLegalRegistrations(state, interaction).find((candidate) => candidate.id === optionId);
+		if (!selected) throw new RangeError(`Illegal registration option: ${optionId}.`);
+		return {
+			interaction: structuredClone(interaction),
+			selection: structuredClone(selected)
+		};
+	}
+			function getVirginTriggerOptions(state, virginPlayerId, nominatorPlayerId) {
+		const virgin = getPlayer(state, virginPlayerId);
+		const nominator = getPlayer(state, nominatorPlayerId);
+		if (!virgin || !nominator) throw new RangeError("Unknown Virgin interaction player.");
+		if (virgin.perceivedCharacterId !== "virgin" || virgin.abilityState.firstNominationAvailable === false) return [{
+			id: "no-trigger",
+			trigger: false
+		}];
+		virgin.abilityState.firstNominationAvailable = false;
+		if (!hasWorkingAbility(state, virginPlayerId, { expectedCharacterId: "virgin" })) return [{
+			id: "no-trigger",
+			trigger: false
+		}];
+		return getLegalRegistrations(state, {
+			type: "virgin_nomination",
+			targetPlayerId: nominatorPlayerId,
+			detectCategories: ["townsfolk"]
+		}).map((registration) => ({
+			id: registration.id,
+			trigger: getCharacter(registration.characterId)?.category === "townsfolk",
+			registration: registration.registered ? {
+				...registration,
+				targetPlayerId: nominatorPlayerId
+			} : null
+		})).filter((option, index, all) => index === all.findIndex((candidate) => candidate.trigger === option.trigger));
+	}
+	function applyVirginTrigger(state, virginPlayerId, nominatorPlayerId, option) {
+		appendEvent(state, EVENT_TYPES.ABILITY_USED, {
+			characterId: "virgin",
+			virginPlayerId,
+			nominatorPlayerId,
+			trigger: option.trigger,
+			registration: option.registration
+		});
+		if (!option.trigger) return { triggered: false };
+		return {
+			triggered: true,
+			execution: resolveExecution(state, nominatorPlayerId, { reason: "virgin_ability" })
+		};
+	}
+			function validateNomination(state, nominatorPlayerId, nomineePlayerId) {
+		if (state.gameOver) return {
+			valid: false,
+			reason: "game_over"
+		};
+		if (state.phase !== "day") return {
+			valid: false,
+			reason: "not_day"
+		};
+		if (state.dayState.nominationsClosed) return {
+			valid: false,
+			reason: "nominations_closed"
+		};
+		const nominator = getPlayer(state, nominatorPlayerId);
+		const nominee = getPlayer(state, nomineePlayerId);
+		if (!nominator || !nominee) return {
+			valid: false,
+			reason: "unknown_player"
+		};
+		if (!nominator.alive) return {
+			valid: false,
+			reason: "dead_cannot_nominate"
+		};
+		if (state.dayState.nominatorPlayerIds.includes(nominatorPlayerId)) return {
+			valid: false,
+			reason: "nominator_already_nominated"
+		};
+		if (state.dayState.nominatedPlayerIds.includes(nomineePlayerId)) return {
+			valid: false,
+			reason: "nominee_already_nominated"
+		};
+		return { valid: true };
+	}
+	function startNomination(state, nominatorPlayerId, nomineePlayerId) {
+		const validation = validateNomination(state, nominatorPlayerId, nomineePlayerId);
+		if (!validation.valid) throw new RangeError(`Illegal nomination: ${validation.reason}.`);
+		const nomination = {
+			id: `nomination-${state.day}-${state.dayState.nominations.length + 1}`,
+			nominatorPlayerId,
+			nomineePlayerId,
+			voterPlayerIds: [],
+			voteCount: null,
+			resolved: false
+		};
+		state.dayState.nominations.push(nomination);
+		state.dayState.nominatorPlayerIds.push(nominatorPlayerId);
+		state.dayState.nominatedPlayerIds.push(nomineePlayerId);
+		appendEvent(state, EVENT_TYPES.NOMINATION_STARTED, {
+			nominationId: nomination.id,
+			nominatorPlayerId,
+			nomineePlayerId
+		}, "public");
+		let virgin = null;
+		if (getPlayer(state, nomineePlayerId).perceivedCharacterId === "virgin") {
+			const legalOptions = getVirginTriggerOptions(state, nomineePlayerId, nominatorPlayerId);
+			if (legalOptions.length === 1) virgin = applyVirginTrigger(state, nomineePlayerId, nominatorPlayerId, legalOptions[0]);
+			else virgin = {
+				triggered: null,
+				decision: createStorytellerDecision(state, {
+					type: "virgin_registration",
+					context: {
+						virginPlayerId: nomineePlayerId,
+						nominatorPlayerId
+					},
+					legalOptions
+				})
+			};
+		}
+		return {
+			nomination,
+			virgin
+		};
+	}
+	function resolveVirginDecision(state, decisionId, optionId) {
+		const decision = state.storytellerDecisions.find(({ id }) => id === decisionId);
+		if (!decision || decision.type !== "virgin_registration" || decision.status !== "pending") throw new RangeError("Unknown pending Virgin decision.");
+		const option = decision.legalOptions.find(({ id }) => id === optionId);
+		if (!option) throw new RangeError("Illegal Virgin registration choice.");
+		decision.selectedOptionId = optionId;
+		decision.status = "resolved";
+		return applyVirginTrigger(state, decision.context.virginPlayerId, decision.context.nominatorPlayerId, option);
+	}
+			function getVoteThreshold(state) {
+		return Math.ceil(getAlivePlayers(state).length / 2);
+	}
+	function getButlerWarnings(state, voterPlayerIds) {
+		const voters = new Set(voterPlayerIds);
+		return voterPlayerIds.flatMap((playerId) => {
+			const player = getPlayer(state, playerId);
+			const masterPlayerId = player?.perceivedCharacterId === "butler" && hasWorkingAbility(state, player.id, { expectedCharacterId: "butler" }) ? player.abilityState.masterPlayerId : null;
+			return masterPlayerId && !voters.has(masterPlayerId) ? [{
+				playerId,
+				code: "butler_master_not_voting",
+				masterPlayerId
+			}] : [];
+		});
+	}
+	function resolveNominationVote(state, nominationId, voterPlayerIds) {
+		const nomination = state.dayState.nominations.find(({ id }) => id === nominationId);
+		if (!nomination || nomination.resolved) throw new RangeError("Unknown or resolved nomination.");
+		if (!Array.isArray(voterPlayerIds) || new Set(voterPlayerIds).size !== voterPlayerIds.length) throw new RangeError("Each player may vote at most once per nomination.");
+		for (const playerId of voterPlayerIds) {
+			const player = getPlayer(state, playerId);
+			if (!player) throw new RangeError(`Unknown voter: ${playerId}.`);
+			if (!player.alive && !player.ghostVoteAvailable) throw new RangeError(`Dead player ${playerId} has no ghost vote.`);
+		}
+		const warnings = getButlerWarnings(state, voterPlayerIds);
+		const invalidButlerVoterIds = new Set(warnings.map(({ playerId }) => playerId));
+		const countedVoterPlayerIds = voterPlayerIds.filter((playerId) => !invalidButlerVoterIds.has(playerId));
+		for (const playerId of countedVoterPlayerIds) {
+			const player = getPlayer(state, playerId);
+			if (!player.alive) player.ghostVoteAvailable = false;
+		}
+		nomination.voterPlayerIds = [...countedVoterPlayerIds];
+		nomination.voteCount = countedVoterPlayerIds.length;
+		nomination.resolved = true;
+		const threshold = getVoteThreshold(state);
+		let blockResult = "below_threshold";
+		if (nomination.voteCount >= threshold) {
+			if (nomination.voteCount > state.dayState.currentHighestVoteCount) {
+				state.dayState.currentHighestVoteCount = nomination.voteCount;
+				state.dayState.currentExecutionCandidateId = nomination.nomineePlayerId;
+				state.dayState.tied = false;
+				blockResult = "new_highest";
+			} else if (nomination.voteCount === state.dayState.currentHighestVoteCount) {
+				state.dayState.currentExecutionCandidateId = null;
+				state.dayState.tied = true;
+				blockResult = "tie";
+			} else blockResult = "lower_than_block";
+		}
+		appendEvent(state, EVENT_TYPES.NOMINATION_RESOLVED, {
+			nominationId,
+			nomineePlayerId: nomination.nomineePlayerId,
+			voterPlayerIds: countedVoterPlayerIds,
+			voteCount: nomination.voteCount,
+			threshold,
+			blockResult
+		}, "public");
+		if (warnings.length) appendEvent(state, EVENT_TYPES.NOMINATION_DETAIL, {
+			nominationId,
+			warnings
+		});
+		return {
+			nomination,
+			threshold,
+			blockResult,
+			countedVoterPlayerIds,
+			warnings
+		};
+	}
+			function uniqueById(options) {
+		return options.filter((option, index, all) => index === all.findIndex((candidate) => candidate.id === option.id));
+	}
+	function combinations(values, length, prefix = []) {
+		if (prefix.length === length) return [prefix];
+		return values.flatMap((value, index) => combinations(values.slice(index + 1), length, [...prefix, value]));
+	}
+	function abilityWorks(state, actorPlayerId, characterId) {
+		return hasWorkingAbility(state, actorPlayerId, {
+			expectedCharacterId: characterId,
+			allowDeadTrigger: characterId === "ravenkeeper"
+		});
+	}
+	function getRegistrationAlignments(state, targetPlayerId) {
+		return [...new Set(getLegalRegistrations(state, {
+			type: "alignment_information",
+			targetPlayerId,
+			detectAlignments: ["good", "evil"]
+		}).map(({ alignment }) => alignment))];
+	}
+	function getRegistrationCharacters(state, targetPlayerId, { categories = null, characterIds = null } = {}) {
+		const options = getLegalRegistrations(state, {
+			type: "character_information",
+			targetPlayerId,
+			detectCategories: categories,
+			detectCharacterIds: characterIds
+		});
+		return [...new Set(options.map(({ characterId }) => characterId).filter((id) => {
+			const character = getCharacter(id);
+			return character && (!categories || categories.includes(character.category)) && (!characterIds || characterIds.includes(id));
+		}))];
+	}
+	function canLibrarianLegallyLearnZero(state, actorPlayerId) {
+		if (!abilityWorks(state, actorPlayerId, "librarian")) return true;
+		return state.players.every((player) => getCharacter(player.actualCharacterId)?.category !== "outsider");
+	}
+	function getPairRoleInformationOptions(state, actorPlayerId, characterId, category) {
+		const works = abilityWorks(state, actorPlayerId, characterId);
+		const roleIds = works ? [] : getCharactersByCategory(category).map(({ id }) => id);
+		const players = state.players;
+		const options = [];
+		if (!works) {
+			const playerPairs = combinations(players.map(({ id }) => id), 2);
+			for (const roleId of roleIds) for (const pair of playerPairs) options.push({
+				id: `${roleId}:${pair.join(":")}`,
+				roleId,
+				playerIds: pair,
+				truthful: null
+			});
+			if (characterId === "librarian") options.push({
+				id: "no-outsiders",
+				roleId: null,
+				playerIds: [],
+				count: 0,
+				truthful: null
+			});
+			return options;
+		}
+		for (const subject of players) {
+			const registrations = getLegalRegistrations(state, {
+				type: `${characterId}_pair_information`,
+				targetPlayerId: subject.id,
+				detectCategories: [category]
+			});
+			for (const registration of registrations) {
+				const roleId = registration.characterId;
+				// A registration may use any permitted role in the detected category, including one not in play.
+				if (getCharacter(roleId)?.category !== category) continue;
+				for (const decoy of players.filter((player) => player.id !== subject.id)) {
+					const pair = [subject.id, decoy.id].sort();
+					options.push({
+						id: `${roleId}:${pair.join(":")}`,
+						roleId,
+						playerIds: pair,
+						registration: registration.registered ? {
+							...registration,
+							targetPlayerId: subject.id
+						} : null,
+						truthful: true
+					});
+				}
+			}
+		}
+		if (characterId === "librarian") {
+			if (canLibrarianLegallyLearnZero(state, actorPlayerId)) options.push({
+				id: "no-outsiders",
+				roleId: null,
+				playerIds: [],
+				count: 0,
+				truthful: true
+			});
+		}
+		return uniqueById(options);
+	}
+	function withRegistrationTarget(registration, targetPlayerId) {
+		return registration.registered ? {
+			...registration,
+			targetPlayerId
+		} : registration;
+	}
+	function getAlignmentRegistrationOptions(state, targetPlayerId) {
+		return getLegalRegistrations(state, {
+			type: "alignment_information",
+			targetPlayerId,
+			detectAlignments: ["good", "evil"]
+		}).map((registration) => withRegistrationTarget(registration, targetPlayerId));
+	}
+	function enumerateRegistrationCombinations(optionLists, index = 0, prefix = []) {
+		if (index === optionLists.length) return [prefix];
+		return optionLists[index].flatMap((option) => enumerateRegistrationCombinations(optionLists, index + 1, [...prefix, option]));
+	}
+	function getRegistrationEvidence(registrations) {
+		return registrations.filter((registration) => registration.registered);
+	}
+	function getChefInformationOptions(state, actorPlayerId) {
+		const works = abilityWorks(state, actorPlayerId, "chef");
+		const max = state.players.length;
+		if (!works) return Array.from({ length: max + 1 }, (_, value) => ({
+			id: String(value),
+			value,
+			truthful: null
+		}));
+		const ordered = [...state.players].sort((a, b) => a.seat - b.seat);
+		return enumerateRegistrationCombinations(ordered.map((player) => getAlignmentRegistrationOptions(state, player.id))).map((registrations) => {
+			const value = registrations.reduce((count, registration, index) => count + Number(registration.alignment === "evil" && registrations[(index + 1) % registrations.length].alignment === "evil"), 0);
+			return {
+				id: `chef:${value}:${registrations.map(({ id }) => id).join("|")}`,
+				value,
+				registrationEvidence: getRegistrationEvidence(registrations),
+				truthful: true
+			};
+		});
+	}
+	function getNearestAliveNeighbors(state, actorPlayerId) {
+		const ordered = [...state.players].sort((a, b) => a.seat - b.seat);
+		const actorIndex = ordered.findIndex((player) => player.id === actorPlayerId);
+		if (actorIndex < 0) throw new RangeError(`Unknown Empath: ${actorPlayerId}.`);
+		const result = [];
+		for (const direction of [-1, 1]) for (let distance = 1; distance < ordered.length; distance += 1) {
+			const candidate = ordered[(actorIndex + direction * distance + ordered.length) % ordered.length];
+			if (candidate.alive) {
+				if (!result.includes(candidate.id)) result.push(candidate.id);
+				break;
+			}
+		}
+		return result;
+	}
+	function getEmpathInformationOptions(state, actorPlayerId) {
+		if (!abilityWorks(state, actorPlayerId, "empath")) return [
+			0,
+			1,
+			2
+		].map((value) => ({
+			id: String(value),
+			value,
+			truthful: null
+		}));
+		const neighbors = getNearestAliveNeighbors(state, actorPlayerId);
+		return enumerateRegistrationCombinations(neighbors.map((playerId) => getAlignmentRegistrationOptions(state, playerId))).map((registrations) => ({
+			id: `empath:${registrations.filter((registration) => registration.alignment === "evil").length}:${registrations.map(({ id }) => id).join("|")}`,
+			value: registrations.filter((registration) => registration.alignment === "evil").length,
+			registrationEvidence: getRegistrationEvidence(registrations),
+			truthful: true,
+			neighborPlayerIds: neighbors
+		}));
+	}
+	function getFortuneTellerInformationOptions(state, actorPlayerId, targetPlayerIds) {
+		if (!Array.isArray(targetPlayerIds) || targetPlayerIds.length !== 2 || new Set(targetPlayerIds).size !== 2) throw new RangeError("Fortune Teller requires two distinct targets.");
+		if (!abilityWorks(state, actorPlayerId, "fortune_teller")) return [{
+			id: "yes",
+			value: true,
+			truthful: null
+		}, {
+			id: "no",
+			value: false,
+			truthful: null
+		}];
+		const forcedYes = targetPlayerIds.includes(state.redHerringPlayerId);
+		if (forcedYes) return [{
+			id: "fortune_teller:red_herring",
+			value: true,
+			truthful: true,
+			redHerringPlayerId: state.redHerringPlayerId
+		}];
+		return enumerateRegistrationCombinations(targetPlayerIds.map((targetPlayerId) => getLegalRegistrations(state, {
+			type: "fortune_teller",
+			targetPlayerId,
+			detectCategories: ["demon"]
+		}).map((registration) => withRegistrationTarget(registration, targetPlayerId)))).map((registrations) => ({
+			id: `fortune_teller:${registrations.some((registration) => getCharacter(registration.characterId)?.category === "demon") ? "yes" : "no"}:${registrations.map(({ id }) => id).join("|")}`,
+			value: registrations.some((registration) => getCharacter(registration.characterId)?.category === "demon"),
+			registrationEvidence: getRegistrationEvidence(registrations),
+			truthful: true
+		}));
+	}
+	function getCharacterInformationOptions(state, actorPlayerId, targetPlayerId, characterId) {
+		if (!abilityWorks(state, actorPlayerId, characterId)) return CHARACTERS.map(({ id }) => ({
+			id,
+			characterId: id,
+			truthful: null
+		}));
+		return getLegalRegistrations(state, {
+			type: `${characterId}_character`,
+			targetPlayerId,
+			// 角色核验允许陌客/间谍在本次互动中登记为任意合法角色。
+			// 阵营核验使用 detectAlignments，不会枚举这些角色伪装。
+			detectCharacterIds: CHARACTER_IDS
+		}).map((registration) => ({
+			id: registration.id,
+			characterId: registration.characterId,
+			registration: registration.registered ? {
+				...registration,
+				targetPlayerId
+			} : null,
+			truthful: true
+		}));
+	}
+	function recordInformationShown(state, { actorPlayerId, presentedCharacterId, selectedOption, targetPlayerIds = [] }) {
+		if (!selectedOption?.id) throw new TypeError("A structured information option is required.");
+		if (!getPlayer(state, actorPlayerId)) throw new RangeError(`Unknown information recipient: ${actorPlayerId}.`);
+		const registrations = getOptionRegistrations(selectedOption);
+		const derivedTargetPlayerIds = [...new Set([
+			...targetPlayerIds,
+			...(selectedOption.playerIds ?? []),
+			...(selectedOption.neighborPlayerIds ?? []),
+			...registrations.map(({ targetPlayerId }) => targetPlayerId).filter(Boolean)
+		])];
+		return appendEvent(state, EVENT_TYPES.INFORMATION_SHOWN, {
+			actorPlayerId,
+			presentedCharacterId,
+			selectedOptionId: selectedOption.id,
+			selectedOption: structuredClone(selectedOption),
+			targetPlayerIds: derivedTargetPlayerIds,
+			registrationEvidence: structuredClone(registrations)
+		}, "private_player");
+	}
+			function getWasherwomanOptions(state, actorPlayerId) {
+		return getPairRoleInformationOptions(state, actorPlayerId, "washerwoman", "townsfolk");
+	}
+	function getLibrarianOptions(state, actorPlayerId) {
+		return getPairRoleInformationOptions(state, actorPlayerId, "librarian", "outsider");
+	}
+	function getInvestigatorOptions(state, actorPlayerId) {
+		return getPairRoleInformationOptions(state, actorPlayerId, "investigator", "minion");
+	}
+	function setRedHerring(state, playerId) {
+		if (!state.players.some((player) => player.actualCharacterId === "fortune_teller")) throw new RangeError("A Fortune Teller must be in play before choosing a red herring.");
+		const player = getPlayer(state, playerId);
+		if (!player || player.actualCharacterId === "fortune_teller" || player.alignment !== "good" || getCharacter(player.actualCharacterId)?.alignment !== "good") throw new RangeError("The Fortune Teller red herring must be another good player.");
+		state.redHerringPlayerId = playerId;
+		return playerId;
+	}
+	function isValidRedHerring(state, playerId = state.redHerringPlayerId) {
+		if (playerId === null) return true;
+		if (!state.players.some((player) => player.actualCharacterId === "fortune_teller")) return false;
+		const player = getPlayer(state, playerId);
+		return Boolean(player && player.actualCharacterId !== "fortune_teller" && player.alignment === "good" && getCharacter(player.actualCharacterId)?.alignment === "good");
+	}
+	function revalidateRedHerring(state, { clearInvalid = false } = {}) {
+		const valid = isValidRedHerring(state);
+		if (!valid && clearInvalid) state.redHerringPlayerId = null;
+		return valid;
+	}
+	function getFortuneTellerResultOptions(state, actorPlayerId, targetPlayerIds) {
+		assertLegalTargets(state, actorPlayerId, "fortune_teller", targetPlayerIds);
+		return getFortuneTellerInformationOptions(state, actorPlayerId, targetPlayerIds);
+	}
+			function getUndertakerResultOptions(state, actorPlayerId) {
+		const targetPlayerId = getUndertakerSubject(state);
+		if (!targetPlayerId) return [];
+		return getCharacterInformationOptions(state, actorPlayerId, targetPlayerId, "undertaker");
+	}
+	function getRavenkeeperResultOptions(state, actorPlayerId, targetPlayerId) {
+		assertLegalTargets(state, actorPlayerId, "ravenkeeper", [targetPlayerId]);
+		return getCharacterInformationOptions(state, actorPlayerId, targetPlayerId, "ravenkeeper");
+	}
+	function recordAbilityResolution(state, payload) {
+		return appendEvent(state, EVENT_TYPES.ABILITY_RESOLVED, payload);
+	}
+			function usePoisonerAbility(state, actorPlayerId, targetPlayerId) {
+		assertLegalTargets(state, actorPlayerId, "poisoner", [targetPlayerId]);
+		const functional = hasWorkingAbility(state, actorPlayerId, { expectedCharacterId: "poisoner" });
+		appendEvent(state, EVENT_TYPES.PLAYER_SELECTED, {
+			actorPlayerId,
+			targetPlayerId,
+			ability: "poisoner",
+			abilityFunctional: functional
+		});
+		if (!functional) {
+			const result = {
+			abilityFunctional: false,
+			effectApplied: false,
+			targetPlayerId
+			};
+			recordAbilityResolution(state, { actorPlayerId, ability: "poisoner", ...result });
+			return result;
+		}
+		const result = {
+			abilityFunctional: true,
+			effectApplied: true,
+			targetPlayerId,
+			effectId: applyStatusEffect(state, {
+				type: "poisoned",
+				sourcePlayerId: actorPlayerId,
+				targetPlayerId,
+				expiresAt: {
+					timing: "dusk",
+				night: state.night + 1
+			}
+			}).id
+		};
+		recordAbilityResolution(state, { actorPlayerId, ability: "poisoner", ...result });
+		return result;
+	}
+			function useMonkAbility(state, actorPlayerId, targetPlayerId) {
+		assertLegalTargets(state, actorPlayerId, "monk", [targetPlayerId]);
+		const functional = hasWorkingAbility(state, actorPlayerId, { expectedCharacterId: "monk" });
+		appendEvent(state, EVENT_TYPES.PLAYER_SELECTED, {
+			actorPlayerId,
+			targetPlayerId,
+			ability: "monk",
+			abilityFunctional: functional
+		});
+		if (!functional) {
+			const result = {
+			abilityFunctional: false,
+			effectApplied: false,
+			targetPlayerId
+			};
+			recordAbilityResolution(state, { actorPlayerId, ability: "monk", ...result });
+			return result;
+		}
+		const result = {
+			abilityFunctional: true,
+			effectApplied: true,
+			targetPlayerId,
+			effectId: applyStatusEffect(state, {
+				type: "monkProtected",
+				sourcePlayerId: actorPlayerId,
+				targetPlayerId,
+				expiresAt: {
+					timing: "dawn",
+				night: state.night
+			}
+			}).id
+		};
+		recordAbilityResolution(state, { actorPlayerId, ability: "monk", ...result });
+		return result;
+	}
+	function chooseButlerMaster(state, actorPlayerId, masterPlayerId) {
+		assertLegalTargets(state, actorPlayerId, "butler", [masterPlayerId]);
+		const butler = getPlayer(state, actorPlayerId);
+		butler.abilityState.masterPlayerId = masterPlayerId;
+		appendEvent(state, EVENT_TYPES.PLAYER_SELECTED, {
+			actorPlayerId,
+			targetPlayerId: masterPlayerId,
+			ability: "butler",
+			abilityFunctional: hasWorkingAbility(state, actorPlayerId, { expectedCharacterId: "butler" })
+		});
+		recordAbilityResolution(state, {
+			actorPlayerId,
+			ability: "butler",
+			abilityFunctional: hasWorkingAbility(state, actorPlayerId, { expectedCharacterId: "butler" }),
+			masterPlayerId
+		});
+		return masterPlayerId;
+	}
+			function getMayorNightDeathOptions(state, mayorPlayerId) {
+		const mayor = getPlayer(state, mayorPlayerId);
+		if (!mayor || !hasWorkingAbility(state, mayorPlayerId, { expectedCharacterId: "mayor" })) return [];
+		return [{
+			id: `kill:${mayor.id}`,
+			playerId: mayor.id,
+			outcome: "mayor_dies"
+		}, ...state.players.filter((player) => player.alive && player.id !== mayor.id).map((player) => ({
+			id: `kill:${player.id}`,
+			playerId: player.id,
+			outcome: "redirect"
+		}))];
+	}
+			function isSafeFromDemon(state, playerId) {
+		return hasWorkingAbility(state, playerId, { expectedCharacterId: "soldier" });
+	}
+			function noDeath(reason, actorPlayerId, targetPlayerId) {
+		return {
+			outcome: reason,
+			diedPlayerIds: [],
+			publicInfo: { diedPlayerIds: [] },
+			storytellerInfo: {
+				actorPlayerId,
+				targetPlayerId,
+				reason
+			},
+			privatePlayerInfo: { [actorPlayerId]: { selectionAccepted: true } }
+		};
+	}
+	function getStarpassCandidates(state, aliveBefore) {
+		const minions = state.players.filter((player) => player.alive && [
+			"poisoner",
+			"spy",
+			"scarlet_woman",
+			"baron"
+		].includes(player.actualCharacterId));
+		const forcedScarletWoman = aliveBefore >= 5 ? getFunctionalScarletWoman(state) : null;
+		return forcedScarletWoman ? [forcedScarletWoman] : minions;
+	}
+	function resolveImpAttack(state, actorPlayerId, targetPlayerId) {
+		if (state.gameOver) throw new Error("Cannot attack after game over.");
+		const actor = getPlayer(state, actorPlayerId);
+		const target = getPlayer(state, targetPlayerId);
+		if (!actor || !target) throw new RangeError("Unknown Imp actor or target.");
+		if (actor.actualCharacterId !== "imp" || state.currentDemonPlayerId !== actor.id) throw new Error("Only the current Imp may use the Imp ability.");
+		if (state.phase !== "night" || state.night < 2) throw new Error("The Imp attacks only at night, except the first night.");
+		assertLegalTargets(state, actorPlayerId, "imp", [targetPlayerId]);
+		const abilityFunctional = hasWorkingAbility(state, actor.id, { expectedCharacterId: "imp" });
+		const selectionEvent = appendEvent(state, EVENT_TYPES.PLAYER_SELECTED, {
+			actorPlayerId,
+			targetPlayerId,
+			ability: "imp",
+			abilityFunctional
+		});
+		const finish = (result) => {
+			selectionEvent.payload.outcome = result?.outcome ?? null;
+			selectionEvent.payload.diedPlayerIds = [...(result?.diedPlayerIds ?? [])];
+			if (result?.successorPlayerId) selectionEvent.payload.successorPlayerId = result.successorPlayerId;
+			recordAbilityResolution(state, {
+				actorPlayerId,
+				ability: "imp",
+				targetPlayerId,
+				abilityFunctional,
+				outcome: result?.outcome ?? null,
+				diedPlayerIds: [...(result?.diedPlayerIds ?? [])],
+				successorPlayerId: result?.successorPlayerId ?? null,
+				decisionId: result?.decision?.id ?? null
+			});
+			return result;
+		};
+		if (!abilityFunctional) return finish(noDeath("imp_ability_malfunction", actor.id, target.id));
+		if (!target.alive) return finish(noDeath("target_already_dead", actor.id, target.id));
+		if (isMonkProtected(state, target.id)) return finish(noDeath("monk_protected", actor.id, target.id));
+		if (target.id === actor.id) {
+			const aliveBefore = getAlivePlayers(state).length;
+			const candidates = getStarpassCandidates(state, aliveBefore);
+			const death = resolveDeath(state, actor.id, {
+				cause: "imp_self_kill",
+				sourcePlayerId: actor.id,
+				suppressDemonReplacement: true,
+				suppressVictory: true
+			});
+			if (!candidates.length) {
+				const victory = evaluateVictory(state, { type: "imp_self_kill" });
+				return finish({
+					outcome: "imp_died_no_successor",
+					diedPlayerIds: [actor.id],
+					death,
+					victory
+				});
+			}
+			if (candidates.length === 1 && candidates[0].actualCharacterId === "scarlet_woman" && aliveBefore >= 5) {
+				const successor = transformCharacter(state, candidates[0].id, "imp", { skipCurrentNightAction: true });
+				const victory = evaluateVictory(state, { type: "imp_starpass", successorPlayerId: successor.id });
+				return finish({
+					outcome: "starpass",
+					diedPlayerIds: [actor.id],
+					successorPlayerId: successor.id,
+					death,
+					victory
+				});
+			}
+			const decision = createStorytellerDecision(state, {
+				type: "IMP_STARPASS_SUCCESSOR",
+				context: {
+					actorPlayerId,
+					aliveBefore
+				},
+				legalOptions: candidates.map((player) => ({
+					id: `successor:${player.id}`,
+					playerId: player.id
+				}))
+			});
+			return finish({
+				outcome: "starpass_decision_required",
+				diedPlayerIds: [actor.id],
+				decision,
+				death
+			});
+		}
+		if (isSafeFromDemon(state, target.id)) return finish(noDeath("soldier_safe", actor.id, target.id));
+		if (hasWorkingAbility(state, target.id, { expectedCharacterId: "mayor" })) return finish({
+			outcome: "mayor_decision_required",
+			diedPlayerIds: [],
+			decision: createStorytellerDecision(state, {
+				type: "MAYOR_NIGHT_DEATH",
+				context: {
+					actorPlayerId,
+					mayorPlayerId: target.id
+				},
+				legalOptions: getMayorNightDeathOptions(state, target.id)
+			})
+		});
+		const death = resolveDeath(state, target.id, {
+			cause: "imp_attack",
+			sourcePlayerId: actor.id
+		});
+		return finish({
+			outcome: death.died ? "target_died" : "no_death",
+			diedPlayerIds: death.died ? [target.id] : [],
+			death,
+			publicInfo: { diedPlayerIds: death.died ? [target.id] : [] },
+			storytellerInfo: {
+				actorPlayerId,
+				targetPlayerId,
+				reason: death.died ? "imp_attack" : death.reason
+			},
+			privatePlayerInfo: { [actorPlayerId]: { selectionAccepted: true } }
+		});
+	}
+	function applyImpStarpassDecision(state, decisionId, optionId) {
+		const decision = state.storytellerDecisions.find((candidate) => candidate.id === decisionId);
+		const successor = getPlayer(state, chooseStorytellerOption(state, decisionId, optionId).playerId);
+		if (!successor?.alive || ![
+			"poisoner",
+			"spy",
+			"scarlet_woman",
+			"baron"
+		].includes(successor.actualCharacterId)) throw new Error("Selected Imp successor is no longer a living Minion.");
+		transformCharacter(state, successor.id, "imp", { skipCurrentNightAction: true });
+		const victory = evaluateVictory(state, { type: "imp_starpass", successorPlayerId: successor.id });
+		recordAbilityResolution(state, {
+			actorPlayerId: decision?.context?.actorPlayerId ?? null,
+			ability: "imp",
+			outcome: "starpass",
+			successorPlayerId: successor.id,
+			decisionId
+		});
+		return {
+			outcome: "starpass",
+			successorPlayerId: successor.id,
+			victory
+		};
+	}
+	function applyMayorDeathDecision(state, decisionId, optionId) {
+		const decision = state.storytellerDecisions.find((candidate) => candidate.id === decisionId);
+		if (!decision || decision.type !== "MAYOR_NIGHT_DEATH") throw new RangeError("Expected a Mayor night-death decision.");
+		const option = chooseStorytellerOption(state, decisionId, optionId);
+		const target = getPlayer(state, option.playerId);
+		if (!target?.alive) {
+			const result = noDeath("mayor_redirect_no_death", decision.context.actorPlayerId, option.playerId);
+			recordAbilityResolution(state, { actorPlayerId: decision.context.actorPlayerId, ability: "imp", targetPlayerId: option.playerId, outcome: result.outcome, decisionId });
+			return result;
+		}
+		if (isMonkProtected(state, target.id) || isSafeFromDemon(state, target.id)) {
+			const result = noDeath("mayor_redirect_no_death", decision.context.actorPlayerId, target.id);
+			recordAbilityResolution(state, { actorPlayerId: decision.context.actorPlayerId, ability: "imp", targetPlayerId: target.id, outcome: result.outcome, decisionId });
+			return result;
+		}
+		const death = resolveDeath(state, target.id, {
+			cause: "mayor_redirect",
+			sourcePlayerId: decision.context.actorPlayerId
+		});
+		const result = {
+			outcome: "mayor_death_resolved",
+			diedPlayerIds: death.died ? [target.id] : [],
+			death
+		};
+		recordAbilityResolution(state, { actorPlayerId: decision.context.actorPlayerId, ability: "imp", targetPlayerId: target.id, outcome: result.outcome, diedPlayerIds: result.diedPlayerIds, decisionId });
+		return result;
+	}
+			function getPresentedCharacterId(player) {
+		return player.perceivedCharacterId ?? player.actualCharacterId;
+	}
+	function getLegalDrunkPerceivedCharacterIds(state, playerId) {
+		const inPlayTownsfolk = new Set(state.players.filter((player) => player.id !== playerId && getCharacter(player.actualCharacterId)?.category === "townsfolk").map((player) => player.actualCharacterId));
+		return getCharactersByCategory("townsfolk").map(({ id }) => id).filter((id) => !inPlayTownsfolk.has(id));
+	}
+	function normalizeDrunkPerception(state, playerId, preferredCharacterId = null) {
+		const player = state.players.find((candidate) => candidate.id === playerId);
+		if (!player) throw new RangeError(`Unknown Drunk player: ${playerId}.`);
+		if (player.actualCharacterId !== "drunk") {
+			player.perceivedCharacterId = player.actualCharacterId;
+			return player.perceivedCharacterId;
+		}
+		const legal = getLegalDrunkPerceivedCharacterIds(state, playerId);
+		const selected = preferredCharacterId ?? player.perceivedCharacterId;
+		player.perceivedCharacterId = legal.includes(selected) ? selected : legal[0] ?? null;
+		if (!player.perceivedCharacterId) throw new RangeError("No legal Townsfolk identity is available for the Drunk.");
+		return player.perceivedCharacterId;
+	}
+			function getSlayerRegistrationOptions(state, targetPlayerId) {
+		return getLegalRegistrations(state, {
+			type: "slayer_target",
+			targetPlayerId,
+			detectCharacterIds: ["imp"]
+		});
+	}
+	function useSlayerAbility(state, actorPlayerId, targetPlayerId, registrationOptionId = "actual") {
+		const actor = getPlayer(state, actorPlayerId);
+		const target = getPlayer(state, targetPlayerId);
+		if (!actor || !target) throw new RangeError("Unknown Slayer actor or target.");
+		if (!actor.alive || actor.perceivedCharacterId !== "slayer") throw new Error("This player cannot publicly use a perceived Slayer ability.");
+		if (actor.abilityState.used) throw new Error("Slayer ability has already been used.");
+		assertLegalTargets(state, actorPlayerId, "slayer", [targetPlayerId]);
+		actor.abilityState.used = true;
+		const abilityEvent = appendEvent(state, EVENT_TYPES.ABILITY_USED, {
+			actorPlayerId,
+			targetPlayerId,
+			ability: "slayer"
+		}, "public");
+		const functional = hasWorkingAbility(state, actor.id, { expectedCharacterId: "slayer" });
+		if (!functional || !target.alive) {
+			abilityEvent.payload.abilityFunctional = functional;
+			abilityEvent.payload.targetDied = false;
+			return {
+			abilityFunctional: functional,
+			abilityConsumed: true,
+			targetDied: false
+			};
+		}
+		const registration = selectRegistration(state, {
+			type: "slayer_target",
+			targetPlayerId,
+			detectCharacterIds: ["imp"]
+		}, registrationOptionId);
+		abilityEvent.payload.abilityFunctional = true;
+		abilityEvent.payload.registration = {
+			...registration.selection,
+			targetPlayerId
+		};
+		if (registration.selection.characterId !== "imp") {
+			abilityEvent.payload.targetDied = false;
+			return {
+			abilityFunctional: true,
+			abilityConsumed: true,
+			targetDied: false,
+			registration
+			};
+		}
+		const death = resolveDeath(state, target.id, {
+			cause: "slayer",
+			sourcePlayerId: actor.id
+		});
+		abilityEvent.payload.targetDied = death.died;
+		return {
+			abilityFunctional: true,
+			abilityConsumed: true,
+			targetDied: death.died,
+			death,
+			registration
+		};
+	}
+			function createDrawState(players) {
+		return {
+			drawIndex: 0,
+			drawRevealed: false,
+			complete: players.length === 0
+		};
+	}
+	function getCurrentDrawView(players, drawState) {
+		if (drawState.complete || drawState.drawIndex >= players.length) return { complete: true };
+		const player = [...players].sort((a, b) => a.seat - b.seat)[drawState.drawIndex];
+		const view = {
+			complete: false,
+			drawIndex: drawState.drawIndex,
+			total: players.length,
+			currentDrawPlayerId: player.id,
+			playerName: player.name,
+			revealed: drawState.drawRevealed
+		};
+		if (!drawState.drawRevealed) return view;
+		const presentedCharacterId = getPresentedCharacterId(player);
+		return {
+			...view,
+			presentedCharacterId,
+			character: getCharacter(presentedCharacterId)
+		};
+	}
+	function revealCurrentDraw(drawState) {
+		if (drawState.complete) throw new Error("Identity draw is already complete.");
+		return {
+			...drawState,
+			drawRevealed: true
+		};
+	}
+	function hideAndAdvanceDraw(players, drawState) {
+		if (!drawState.drawRevealed) throw new Error("The current identity must be revealed before advancing.");
+		const nextIndex = drawState.drawIndex + 1;
+		return {
+			drawIndex: nextIndex,
+			drawRevealed: false,
+			complete: nextIndex >= players.length
+		};
+	}
+	function canCloseDraw(drawState) {
+		return drawState.complete;
+	}
+			const PAIR_INFORMATION_CHARACTERS = /* @__PURE__ */ new Set([
+		"washerwoman",
+		"librarian",
+		"investigator"
+	]);
+	function getPairInformationReminders(state) {
+		const remindersByPlayerId = new Map(state.players.map(({ id }) => [id, /* @__PURE__ */ new Set()]));
+		for (const event of state.events ?? []) {
+			if (event.type !== EVENT_TYPES.INFORMATION_SHOWN) continue;
+			const { presentedCharacterId, selectedOption } = event.payload ?? {};
+			if (!PAIR_INFORMATION_CHARACTERS.has(presentedCharacterId)) continue;
+			const playerIds = selectedOption?.playerIds ?? selectedOption?.candidatePlayerIds ?? [];
+			const shownCharacterId = selectedOption?.roleId ?? selectedOption?.shownCharacterId ?? null;
+			if (!Array.isArray(playerIds) || !shownCharacterId) continue;
+			const reminder = `information:${presentedCharacterId}:${shownCharacterId}`;
+			for (const playerId of playerIds) remindersByPlayerId.get(playerId)?.add(reminder);
+		}
+		return remindersByPlayerId;
+	}
+	function getGrimoireRows(state) {
+		const informationReminders = getPairInformationReminders(state);
+		return [...state.players].sort((a, b) => a.seat - b.seat).map((player) => {
+			const reminders = [];
+			if (!player.alive) reminders.push("dead");
+			if (isPoisoned(state, player.id)) reminders.push("poisoned");
+			if (isMonkProtected(state, player.id)) reminders.push("monk_protected");
+			if (state.redHerringPlayerId === player.id) reminders.push("red_herring");
+			if (state.currentDemonPlayerId === player.id) reminders.push("current_demon");
+			if (player.actualCharacterId === "slayer" && player.abilityState.used) reminders.push("slayer_used");
+			if (player.actualCharacterId === "virgin") reminders.push(player.abilityState.firstNominationAvailable === false ? "virgin_consumed" : "virgin_available");
+			if (player.actualCharacterId === "butler" && player.abilityState.masterPlayerId) reminders.push(`butler_master:${player.abilityState.masterPlayerId}`);
+			reminders.push(...informationReminders.get(player.id) ?? []);
+			return {
+				playerId: player.id,
+				name: player.name,
+				actualCharacterId: player.actualCharacterId,
+				actualCharacter: getCharacter(player.actualCharacterId),
+				perceivedCharacterId: player.perceivedCharacterId,
+				alive: player.alive,
+				reminders
+			};
+		});
+	}
+			function getSlayerResolutionRequest(state, targetPlayerId) {
+		const registrationOptions = getSlayerRegistrationOptions(state, targetPlayerId);
+		return {
+			registrationOptions,
+			requiresStorytellerChoice: registrationOptions.length > 1,
+			automaticOptionId: registrationOptions.length === 1 ? registrationOptions[0].id : null
+		};
+	}
+	function getVirginDecisionContinuation(state) {
+		return state.dayState.nominationsClosed ? "day_closed" : "normal_vote";
+	}
+			function formatInformationValue(value) {
+		if (typeof value === "boolean") return value ? "是" : "否";
+		if (typeof value === "number") return String(value);
+		return String(value);
+	}
+			const $ = (selector) => document.querySelector(selector);
+	const esc = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		"\"": "&quot;",
+		"'": "&#39;"
+	})[character]);
+	const roleName = (id) => getCharacter(id)?.nameZh ?? "未分配";
+	const categoryName = {
+		townsfolk: "村民",
+		outsider: "外来者",
+		minion: "爪牙",
+		demon: "恶魔"
+	};
+	const loaded = loadGameState(localStorage);
+	let state = loaded.state;
+	let transientMessage = loaded.warning;
+	let selectedNightTargets = [];
+	let drawState = null;
+	function freshSetup(count = 5) {
+		state = createGameState({ players: Array.from({ length: count }, (_, seat) => createPlayer({
+			id: `p${seat + 1}`,
+			name: `${seat + 1}号`,
+			seat
+		})) });
+		persist();
+	}
+	if (!state.players.length) freshSetup(5);
+	function persist() {
+		try {
+			saveGameState(localStorage, state);
+		} catch (error) {
+			transientMessage = `存档失败：${error.message}`;
+		}
+	}
+	function setMessage(message) {
+		transientMessage = message;
+		persist();
+		render();
+	}
+	function roleOptions(selected = "") {
+		return `<option value="">— 选择角色 —</option>${CHARACTERS.map((role) => `<option value="${role.id}" ${role.id === selected ? "selected" : ""}>${esc(role.nameZh)} · ${categoryName[role.category]}</option>`).join("")}`;
+	}
+	function drunkPerceptionOptions(player) {
+		return getLegalDrunkPerceivedCharacterIds(state, player.id).map((id) => `<option value="${id}" ${id === player.perceivedCharacterId ? "selected" : ""}>${esc(roleName(id))}</option>`).join("");
+	}
+	function revalidateSetupChoices() {
+		for (const player of state.players) normalizeDrunkPerception(state, player.id);
+		const redHerringWasInvalid = !revalidateRedHerring(state, { clearInvalid: true });
+		const previousBluffCount = state.demonBluffs.length;
+		const actual = state.players.map(({ actualCharacterId }) => actualCharacterId).filter(Boolean);
+		const legalBluffs = new Set(getLegalDemonBluffCharacterIds(actual));
+		state.demonBluffs = [...new Set(state.demonBluffs.filter((id) => legalBluffs.has(id)))];
+		return {
+			redHerringWasInvalid,
+			demonBluffWasInvalid: state.demonBluffs.length !== previousBluffCount
+		};
+	}
+	function recommendRedHerring(state) {
+		const candidates = state.players.filter((p) =>
+			p.alignment === "good" &&
+			getCharacter(p.actualCharacterId)?.alignment === "good" &&
+			p.actualCharacterId !== "fortune_teller");
+		if (!candidates.length) return null;
+		const WEIGHTS = {
+			saint: [5, "圣徒被处决会让善良直接失败：占卜师若误锁圣徒为恶魔，戏剧张力与防御性误导都最强，是官方建议的高价值候选"],
+			virgin: [4, "村民提名贞洁者会被立即处决：占卜师怀疑贞洁者会显著扰乱白天投票节奏"],
+			empath: [3, "共情者的结论常被多家采信：占卜师误锁共情者会引发连锁误判"],
+			chef: [3, "厨师首夜信息攸关开局排坑，天然适合作为误导目标"],
+			washerwoman: [2, "洗衣妇的“村民+陪衬”是首夜信息焦点，适合做误导目标"],
+			librarian: [2, "图书管理员同为首夜信息焦点"],
+			investigator: [2, "调查员同为首夜信息焦点"],
+			undertaker: [2, "殡葬师掌握处决信息链，值得让占卜师误判"],
+			ravenkeeper: [2, "守鸦人的死亡信息价值高，被误锁会浪费关键能力"],
+			monk: [2, "僧侣的保护布局会被占卜师的怀疑带偏"],
+			slayer: [2, "杀手公开指认易受干扰，尤其怕被占卜师误锁成恶魔"],
+			soldier: [1, "士兵能力是夜间保护，被误锁负面影响较小，属稳妥项"],
+			mayor: [1, "镇长与胜利条件相关，但被怀疑影响有限"],
+			butler: [1, "管家投票链路简单，被误锁风险可控"],
+			recluse: [1, "陌客可登记为恶魔，做红鲱鱼有一定隐蔽性但容易穿帮"],
+			drunk: [0, "酒鬼本身提供误导信息，再作为红鲱鱼会叠加不确定性"]
+		};
+		const ranked = candidates
+			.map((p) => ({ player: p, weight: WEIGHTS[p.actualCharacterId]?.[0] ?? 0, why: WEIGHTS[p.actualCharacterId]?.[1] }))
+			.sort((a, b) => b.weight - a.weight || a.player.seat - b.player.seat);
+		const top = ranked[0];
+		return {
+			player: top.player,
+			reason: top.why ?? "该角色无特殊技能，作为红鲱鱼不会破坏关键信息链，属稳妥选择"
+		};
+	}
+	function renderSetup() {
+		revalidateSetupChoices();
+		$("#setupPanel").style.display = "";
+		$("#gamePanel").style.display = "none";
+		$("#setupPlayers").innerHTML = state.players.sort((a, b) => a.seat - b.seat).map((player) => `
+    <div class="setup-player" data-player="${player.id}">
+      <b>${player.seat + 1}</b>
+      <input type="text" data-field="name" value="${esc(player.name)}" aria-label="玩家姓名">
+      <select data-field="actualCharacterId">${roleOptions(player.actualCharacterId)}</select>
+      ${player.actualCharacterId === "drunk" ? `<label>酒鬼认知身份 <select data-field="perceivedCharacterId">${drunkPerceptionOptions(player)}</select></label>` : "<span style=\"color:var(--muted);font-size:12px\">认知身份随实际角色</span>"}
+    </div>`).join("");
+		const ids = state.players.map(({ actualCharacterId }) => actualCharacterId).filter(Boolean);
+		const hasBaron = ids.includes("baron");
+		let composition;
+		try {
+			composition = hasBaron ? applyBaronAdjustment(getBaseComposition(state.players.length)) : getBaseComposition(state.players.length);
+		} catch {
+			composition = null;
+		}
+		$("#compoBox").innerHTML = composition ? Object.entries(composition).map(([category, count]) => `<div class="comp-item"><b>${count}</b><span>${categoryName[category]}</span></div>`).join("") : "<div class=\"hintline warn\">仅支持 5–15 名非旅行者玩家。</div>";
+		const validation = composition && ids.length === state.players.length ? validateSetupCharacters(ids, state.players.length) : null;
+		$("#compoNote").textContent = validation ? validation.valid ? "当前角色构成合法且无重复。" : validation.errors.join(" ") : "可随机生成，或为每位玩家手动选择唯一角色。";
+		const fortuneTeller = state.players.find((player) => player.actualCharacterId === "fortune_teller");
+		const goodPlayers = state.players.filter((player) => player.actualCharacterId !== "fortune_teller" && player.alignment === "good" && getCharacter(player.actualCharacterId)?.alignment === "good");
+		$("#redHerringRow").innerHTML = fortuneTeller ? `<label>占卜师红鲱鱼：<select id="redHerringSelect"><option value="">— 请选择一名善良玩家 —</option>${goodPlayers.map((player) => `<option value="${player.id}" ${state.redHerringPlayerId === player.id ? "selected" : ""}>${esc(player.name)}</option>`).join("")}</select></label><button class="btn" id="btnRecommendRedHerring" style="margin-left:10px">🎲 一键推荐</button>
+<div id="redHerringSuggestion" style="margin-top:6px;font-size:12px;color:var(--gold-dim)"></div>` : "";
+		if (state.players.length >= 7) {
+			const legalBluffs = getLegalDemonBluffCharacterIds(ids);
+			const bluffOptions = (selected) => `<option value="">— 选择不在场善良角色 —</option>${legalBluffs.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(roleName(id))}</option>`).join("")}`;
+			$("#demonBluffRow").innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>恶魔伪装：</b>${[
+				0,
+				1,
+				2
+			].map((index) => `<select data-bluff-index="${index}">${bluffOptions(state.demonBluffs[index])}</select>`).join("")}<button class="btn" id="suggestDemonBluffs">🎲 随机推荐 3 个合法伪装</button></div>`;
+		} else {
+			state.demonBluffs = [];
+			$("#demonBluffRow").innerHTML = "<div class=\"hintline\">5–6 人局不执行标准恶魔信息步骤，无需配置伪装。</div>";
+		}
+		$("#drawNote").textContent = transientMessage ?? "";
+		bindSetupEvents();
+	}
+	function bindSetupEvents() {
+		$("#setupPlayers").oninput = (event) => {
+			const row = event.target.closest("[data-player]");
+			const player = row && getPlayer(state, row.dataset.player);
+			if (!player) return;
+			if (event.target.dataset.field === "name") player.name = event.target.value;
+			if (event.target.dataset.field === "actualCharacterId") {
+				player.actualCharacterId = event.target.value || null;
+				player.alignment = getCharacter(player.actualCharacterId)?.alignment ?? "good";
+				normalizeDrunkPerception(state, player.id);
+				state.currentDemonPlayerId = state.players.find((candidate) => candidate.actualCharacterId === "imp")?.id ?? null;
+				const { redHerringWasInvalid, demonBluffWasInvalid } = revalidateSetupChoices();
+				if (redHerringWasInvalid) transientMessage = "原红鲱鱼已不再是合法善良玩家，请重新选择。";
+				else if (demonBluffWasInvalid) transientMessage = "角色变化使原恶魔伪装不再合法，请重新确认。";
+			}
+			if (event.target.dataset.field === "perceivedCharacterId") normalizeDrunkPerception(state, player.id, event.target.value);
+			persist();
+			if (event.target.dataset.field !== "name") render();
+		};
+		$("#redHerringSelect")?.addEventListener("change", (event) => {
+			if (event.target.value) setRedHerring(state, event.target.value);
+			else state.redHerringPlayerId = null;
+			persist();
+		});
+		$("#btnRecommendRedHerring")?.addEventListener("click", () => {
+			const rec = recommendRedHerring(state);
+			if (!rec) {
+				alert("当前没有合法的善良玩家可选为红鲱鱼。");
+				return;
+			}
+			state.redHerringPlayerId = rec.player.id;
+			setRedHerring(state, rec.player.id);
+			persist();
+			const select = $("#redHerringSelect");
+			if (select) select.value = rec.player.id;
+			const note = $("#redHerringSuggestion");
+			if (note) note.textContent = "已推荐：" + rec.player.name + "（" + roleName(rec.player.actualCharacterId) + "）—— " + rec.reason;
+		});
+		$("#demonBluffRow").onchange = () => {
+			state.demonBluffs = [...$("#demonBluffRow").querySelectorAll("[data-bluff-index]")].map(({ value }) => value).filter(Boolean);
+			persist();
+			render();
+		};
+		$("#suggestDemonBluffs")?.addEventListener("click", () => {
+			const ids = state.players.map(({ actualCharacterId }) => actualCharacterId).filter(Boolean);
+			state.demonBluffs = generateDemonBluffs(ids);
+			transientMessage = "已按合法候选随机推荐 3 个伪装；请由说书人确认。";
+			persist();
+			render();
+		});
+	}
+	function startGame() {
+		revalidateSetupChoices();
+		const validation = validateSetupCharacters(state.players.map(({ actualCharacterId }) => actualCharacterId).filter(Boolean), state.players.length);
+		if (!validation.valid) return setMessage(`无法开始：${validation.errors.join(" ")}`);
+		if (state.players.find((player) => player.actualCharacterId === "fortune_teller") && (!state.redHerringPlayerId || !isValidRedHerring(state))) return setMessage("无法开始：有占卜师时必须由说书人选择一名合法善良玩家作为固定红鲱鱼。");
+		const bluffValidation = validateDemonBluffs(state);
+		if (!bluffValidation.valid) return setMessage(`无法开始：请先确认恶魔的三个合法伪装角色。${bluffValidation.errors.join(" ")}`);
+		state.phase = "night";
+		state.night = 1;
+		state.nightState = createNightState(1);
+		appendEvent(state, EVENT_TYPES.GAME_STARTED, {
+			players: state.players.map((player) => ({
+				playerId: player.id,
+				name: player.name,
+				seat: player.seat,
+				actualCharacterId: player.actualCharacterId,
+				perceivedCharacterId: player.perceivedCharacterId,
+				alignment: player.alignment
+			})),
+			demonBluffs: [...state.demonBluffs],
+			redHerringPlayerId: state.redHerringPlayerId
+		});
+		appendEvent(state, EVENT_TYPES.NIGHT_STARTED, { night: state.night });
+		state.nightState.steps = buildNightSteps(state);
+		transientMessage = null;
+		persist();
+		render();
+	}
+	function formatInformation(option) {
+		if ("value" in option) return formatInformationValue(option.value);
+		if ("trigger" in option) return option.trigger ? "触发贞洁者能力" : "不触发贞洁者能力";
+		if (option.roleId) return `${roleName(option.roleId)}：${option.playerIds.map((id) => getPlayer(state, id)?.name).join(" / ")}`;
+		if (option.count === 0) return "场上没有外来者";
+		if (option.characterId) return roleName(option.characterId);
+		if (option.playerId) return getPlayer(state, option.playerId)?.name ?? option.playerId;
+		return option.id;
+	}
+	function formatNightActionResult(ability, result) {
+		const name = (playerId) => getPlayer(state, playerId)?.name ?? "该玩家";
+		const targetName = result?.targetPlayerId ? name(result.targetPlayerId) : "目标";
+		if (ability === "poisoner") return result?.effectApplied ? `已记录：${targetName} 中毒至次日黄昏。` : `已记录：选择了 ${targetName}，但投毒者能力未生效。`;
+		if (ability === "monk") return result?.effectApplied ? `已记录：${targetName} 本夜受到僧侣保护。` : `已记录：选择了 ${targetName}，但僧侣能力未生效。`;
+		if (ability === "butler") return `已记录：${name(result?.masterPlayerId)} 是管家的主人。`;
+		if (ability !== "imp") return "行动已记录。";
+		const outcome = {
+			imp_ability_malfunction: `已记录：攻击 ${targetName}，但小恶魔能力未生效。`,
+			target_already_dead: `已记录：${targetName} 已死亡，未发生变化。`,
+			monk_protected: `已记录：${targetName} 受僧侣保护，未死亡。`,
+			soldier_safe: `已记录：${targetName} 免受恶魔能力，未死亡。`,
+			target_died: `已记录：${targetName} 被小恶魔攻击并死亡。`,
+			starpass: `已记录：小恶魔死亡，${name(result?.successorPlayerId)} 变为新的小恶魔。`,
+			imp_died_no_successor: "已记录：小恶魔死亡，场上没有可继任的存活爪牙。"
+		};
+		return outcome[result?.outcome] ?? "小恶魔行动已记录。";
+	}
+	function getOptionRegistrations(option) {
+		const registrations = [option?.registration, ...(option?.registrationEvidence ?? [])].filter((registration) => registration?.registered);
+		return registrations.filter((registration, index) => index === registrations.findIndex((candidate) => candidate.id === registration.id && candidate.targetPlayerId === registration.targetPlayerId));
+	}
+	function getRegistrationSummary(option) {
+		return getOptionRegistrations(option).map((registration) => {
+			const player = getPlayer(state, registration.targetPlayerId);
+			const sourceCharacterId = registration.sourceCharacterId ?? player?.actualCharacterId;
+			const sourceName = sourceCharacterId === "spy" ? "间谍" : sourceCharacterId === "recluse" ? "陌客" : "特殊登记";
+			const targetName = player?.name ?? "该玩家";
+			const shownAs = registration.registrationType === "alignment" ? `${registration.alignment === "good" ? "善良" : "邪恶"}阵营` : roleName(registration.characterId);
+			return `${sourceName}：${targetName}=${shownAs}`;
+		}).join("；");
+	}
+	function formatStorytellerOption(option) {
+		const registrationSummary = getRegistrationSummary(option);
+		return registrationSummary ? `${formatInformation(option)}（${registrationSummary}）` : formatInformation(option);
+	}
+	function getRegistrationExplanation(option) {
+		const summary = getRegistrationSummary(option);
+		return summary ? `登记裁量：${summary}。` : "";
+	}
+		function recommendPairInformation(options, gameState) {
+		if (!options.length) return null;
+		const truthful = options.filter((option) => option.truthful === true);
+		const pool = truthful.length ? truthful : options;
+		// 厨师等由场上配置唯一确定的结果：直接推荐唯一真实选项，不做随机
+		if (pool.length === 1) return pool[0];
+		const ROLE_WEIGHT = { spy: 3, drunk: 3, recluse: 2, saint: 2, empath: 1, fortune_teller: 1, virgin: 1, ravenkeeper: 1, monk: 1, butler: 1, poisoner: 1, baron: 1, scarlet_woman: 1 };
+		// 核验间谍/陌客时，若登记的角色本局已有另一名玩家是它，会在场上造成“两名相同角色”的穿帮，强烈降权
+		const collidesWithInPlay = (option) => {
+			if (!gameState || !option.roleId) return false;
+			return gameState.players.some((player) => player.actualCharacterId === option.roleId && !(option.playerIds ?? []).includes(player.id));
+		};
+		const weighted = pool.map((option) => {
+			let weight = (option.truthful === true ? 2 : 1) + (option.roleId ? ROLE_WEIGHT[option.roleId] ?? 0 : 0);
+			if (collidesWithInPlay(option)) weight *= 0.05;
+			return { option, weight };
+		});
+		const total = weighted.reduce((sum, item) => sum + item.weight, 0);
+		let roll = Math.random() * total;
+		for (const item of weighted) {
+			roll -= item.weight;
+			if (roll <= 0) return item.option;
+		}
+		return weighted[weighted.length - 1].option;
+	}
+
+	function showLegalOptions(title, options, { onChoose = null, onEmpty = null, onContinue = advanceNight, continueLabel = "继续" } = {}) {
+		$("#resultCard").classList.add("show");
+		$("#resultTitle").textContent = title;
+		if (!options.length) {
+			onEmpty?.();
+			$("#resultBody").innerHTML = "<div class=\"hintline warn\">此时没有合法结果。</div>";
+			$("#resultExtra").innerHTML = "<button class=\"btn primary\" id=\"continueWithoutInformation\">没有信息，继续</button>";
+			$("#continueWithoutInformation")?.addEventListener("click", onContinue);
+			return;
+		}
+		if (!$("#legalRecommendNote")) $("#resultCard").insertAdjacentHTML("beforeend", '<div id="legalRecommendNote" class="hintline" style="margin-top:10px;color:var(--sel)"></div>');
+		if (!$("#legalRegistrationNote")) $("#resultCard").insertAdjacentHTML("beforeend", '<div id="legalRegistrationNote" class="hintline" style="margin-top:6px;color:var(--muted)"></div>');
+		const note = $("#legalRecommendNote");
+		const registrationNote = $("#legalRegistrationNote");
+		if (note) note.textContent = "";
+		if (registrationNote) registrationNote.textContent = "";
+		const useDropdown = options.some((option) => formatStorytellerOption(option).length > 8);
+		let selectedId = options[0].id;
+		const renderBody = () => {
+			if (useDropdown) {
+				$("#resultBody").innerHTML = `<select id="legalOptionSelect">${options.map((option) => `<option value="${esc(option.id)}" ${option.id === selectedId ? "selected" : ""}>${esc(formatStorytellerOption(option))}</option>`).join("")}</select>`;
+				$("#legalOptionSelect").addEventListener("change", (event) => { selectedId = event.target.value; renderBody(); });
+			} else {
+				$("#resultBody").innerHTML = `<div class="legal-options">${options.map((option) => `<button class="legal-option${option.id === selectedId ? " picked" : ""}" type="button" data-id="${esc(option.id)}">${esc(formatStorytellerOption(option))}</button>`).join("")}</div>`;
+				$("#resultBody").querySelectorAll(".legal-option").forEach((button) => button.addEventListener("click", () => { selectedId = button.dataset.id; renderBody(); }));
+			}
+			if (registrationNote) registrationNote.textContent = getRegistrationExplanation(options.find(({ id }) => id === selectedId));
+		};
+		renderBody();
+		$("#resultExtra").innerHTML = "<button class=\"btn ghost\" id=\"recommendLegalOption\">🎲 随机推荐</button><button class=\"btn primary\" id=\"chooseLegalOption\">确认此合法选项</button>";
+		const submit = () => {
+			const option = options.find(({ id }) => id === selectedId);
+			if (!option) return;
+			onChoose?.(option);
+			$("#resultBody").textContent = `已记录：${formatInformation(option)}`;
+			$("#resultExtra").innerHTML = `<button class="btn primary" id="continueAfterDecision">${esc(continueLabel)}</button>`;
+			$("#continueAfterDecision").onclick = onContinue;
+			persist();
+		};
+		$("#recommendLegalOption").addEventListener("click", () => {
+			const rec = recommendPairInformation(options, state);
+			if (!rec) return;
+			selectedId = rec.id;
+			renderBody();
+			if (note) {
+			const deterministic = options.filter((option) => option.truthful === true).length === 1;
+			note.textContent = `🎲 已推荐：${formatInformation(rec)}${deterministic ? "（当前配置唯一确定）" : rec.truthful === true ? "（真实信息优先）" : "（能力失效，可自由裁量）"}`;
+		}
+		});
+		$("#chooseLegalOption").addEventListener("click", submit);
+	}
+
+	function renderNight() {
+		$("#setupPanel").style.display = "none";
+		$("#gamePanel").style.display = "";
+		const steps = state.nightState.steps;
+		$("#resultCard").classList.remove("show");
+		$("#targetArea").innerHTML = "";
+		$("#btnArea").innerHTML = "";
+		if (state.gameOver) {
+			$("#promptKind").textContent = `第 ${state.night} 夜`;
+			$("#promptTitle").textContent = "游戏已经结束";
+			$("#promptDesc").textContent = "胜负已经确定，不再执行剩余夜间行动。";
+			$("#promptRule").textContent = "";
+			$("#stepDots").innerHTML = "";
+			return;
+		}
+		const step = getCurrentNightStep(state);
+		$("#promptKind").textContent = `第 ${state.night} 夜 · ${state.nightState.currentStepIndex + 1}/${Math.max(steps.length, 1)}`;
+		if (!step) {
+			$("#promptTitle").textContent = "夜晚流程完成";
+			$("#promptDesc").textContent = "确认所有夜间步骤和即时死亡触发均已处理，然后天亮。";
+			$("#promptRule").textContent = "";
+			$("#btnArea").innerHTML = "<button class=\"btn primary\" id=\"finishNight\">天亮</button>";
+			$("#finishNight").onclick = finishNight;
+			return;
+		}
+		const actor = step.actorPlayerId ? getPlayer(state, step.actorPlayerId) : null;
+		if (step.interactionType === "new_imp_info") {
+			$("#promptTitle").textContent = `${actor?.name ?? ""} · 私密身份变化`;
+			$("#promptDesc").textContent = "单独唤醒该玩家，展示“你是”信息标记与小恶魔角色标记，然后让其闭眼。";
+			$("#promptRule").textContent = "此通知仅供新小恶魔本人查看。若由旧小恶魔自杀换位，新小恶魔本夜不再发动击杀。";
+			$("#targetArea").innerHTML = `<div class="draw-role"><b>${esc(actor?.name ?? "")}</b><h3>${esc(roleName("imp"))}</h3><p>你现在是小恶魔。</p></div>`;
+			$("#btnArea").innerHTML = "<button class=\"btn primary\" id=\"simpleNext\">已私下告知，继续</button>";
+			$("#simpleNext").onclick = advanceNight;
+			return;
+		}
+		$("#promptTitle").textContent = step.interactionType === "minion_info" ? "爪牙信息" : step.interactionType === "demon_info" ? "恶魔信息与伪装" : `${actor?.name ?? ""} · ${roleName(step.presentedCharacterId)}`;
+		$("#promptDesc").textContent = getCharacter(step.presentedCharacterId)?.abilityTextZh ?? "按官方起始信息向邪恶玩家展示信息。";
+		$("#promptRule").textContent = step.abilityFunctional === false ? "该能力当前失效；界面仍允许角色正常行动，但结果必须从失效信息的合法集合中选择。" : "请选择合法目标，再由说书人从合法结果中确认。";
+		$("#stepDots").innerHTML = steps.map((_, index) => {
+			const className = index === state.nightState.currentStepIndex ? "dot cur" : index < state.nightState.currentStepIndex ? "dot done" : "dot";
+			return `<span class="${className}" aria-hidden="true"></span>`;
+		}).join("");
+		if (["minion_info", "demon_info"].includes(step.interactionType)) {
+			const demon = state.players.find((player) => player.id === state.currentDemonPlayerId);
+			const minions = state.players.filter((player) => getCharacter(player.actualCharacterId)?.category === "minion");
+			$("#targetArea").textContent = step.interactionType === "demon_info" ? `爪牙：${minions.map(({ name }) => name).join("、")}；伪装角色：${state.demonBluffs.map(roleName).join("、")}` : `恶魔：${demon?.name ?? "无"}；爪牙：${minions.map(({ name }) => name).join("、")}`;
+			$("#btnArea").innerHTML = "<button class=\"btn primary\" id=\"simpleNext\">已展示，继续</button>";
+			$("#simpleNext").onclick = () => {
+				appendEvent(state, EVENT_TYPES.NIGHT_INFORMATION_SHOWN, {
+					kind: step.interactionType,
+					demonPlayerId: demon?.id ?? null,
+					minionPlayerIds: minions.map(({ id }) => id),
+					demonBluffs: [...state.demonBluffs]
+				});
+				advanceNight();
+			};
+			return;
+		}
+		const restoredInformation = [...state.events].reverse().find((event) => event.type === "INFORMATION_SHOWN" && event.night === state.night && event.payload.actorPlayerId === step.actorPlayerId && event.payload.presentedCharacterId === step.presentedCharacterId);
+		if (restoredInformation) {
+			$("#targetArea").textContent = `已从存档恢复本步信息${restoredInformation.payload.targetPlayerIds.length ? `；目标：${restoredInformation.payload.targetPlayerIds.map((id) => getPlayer(state, id)?.name).join("、")}` : ""}。`;
+			$("#resultCard").classList.add("show");
+			$("#resultTitle").textContent = "已恢复的信息结果";
+			$("#resultBody").textContent = `已记录：${formatInformation(restoredInformation.payload.selectedOption)}`;
+			$("#resultExtra").innerHTML = "<button class=\"btn primary\" id=\"continueRestoredInformation\">继续</button>";
+			$("#continueRestoredInformation").onclick = advanceNight;
+			return;
+		}
+		if (step.interactionType === "information_or_view") return renderInformationStep(step);
+		renderTargetStep(step);
+	}
+	function renderInformationStep(step) {
+		const id = step.presentedCharacterId;
+		if (id === "spy") {
+			if (step.abilityFunctional === false) {
+				$("#targetArea").innerHTML = '<div class="hintline warn">间谍当前中毒，不能查看真实魔典。</div><textarea id="spyFalseInformation" rows="3" placeholder="可选：记录本次给予间谍的失效信息"></textarea>';
+				$("#btnArea").innerHTML = "<button class=\"btn primary\" id=\"simpleNext\">已处理失效信息，继续</button>";
+				$("#simpleNext").onclick = () => {
+					appendEvent(state, EVENT_TYPES.NIGHT_INFORMATION_SHOWN, {
+						kind: "spy_grimoire",
+						actorPlayerId: step.actorPlayerId,
+						abilityFunctional: false,
+						shownInformation: $("#spyFalseInformation")?.value.trim() ?? ""
+					});
+					advanceNight();
+				};
+				return;
+			}
+			$("#targetArea").textContent = "向间谍展示完整魔典，包括玩家身份与当前提示标记。登记不是固定伪装；每次相关互动单独选择。";
+			$("#btnArea").innerHTML = "<button class=\"btn\" id=\"viewGrimoire\">查看间谍魔典</button><button class=\"btn primary\" id=\"simpleNext\">继续</button>";
+			$("#viewGrimoire").onclick = openSpyGrimoire;
+			$("#simpleNext").onclick = () => {
+				appendEvent(state, EVENT_TYPES.NIGHT_INFORMATION_SHOWN, {
+					kind: "spy_grimoire",
+					actorPlayerId: step.actorPlayerId,
+					abilityFunctional: true,
+					grimoire: getGrimoireRows(state).map((row) => ({
+						playerId: row.playerId,
+						actualCharacterId: row.actualCharacterId,
+						perceivedCharacterId: row.perceivedCharacterId,
+						alive: row.alive,
+						reminders: row.reminders
+					}))
+				});
+				advanceNight();
+			};
+			return;
+		}
+		let options = [];
+		if (id === "washerwoman") options = getWasherwomanOptions(state, step.actorPlayerId);
+		if (id === "librarian") options = getLibrarianOptions(state, step.actorPlayerId);
+		if (id === "investigator") options = getInvestigatorOptions(state, step.actorPlayerId);
+		if (id === "chef") options = getChefInformationOptions(state, step.actorPlayerId);
+		if (id === "empath") options = getEmpathInformationOptions(state, step.actorPlayerId);
+		if (id === "undertaker") options = getUndertakerResultOptions(state, step.actorPlayerId);
+		showLegalOptions("说书人选择一个合法信息结果", options, {
+			onChoose: (selectedOption) => recordInformationShown(state, {
+				actorPlayerId: step.actorPlayerId,
+				presentedCharacterId: id,
+				selectedOption
+			}),
+			onEmpty: () => recordInformationShown(state, {
+				actorPlayerId: step.actorPlayerId,
+				presentedCharacterId: id,
+				selectedOption: { id: "no-information", value: "无可展示信息", truthful: true }
+			})
+		});
+	}
+	function renderTargetStep(step) {
+		selectedNightTargets = [];
+		const ability = step.presentedCharacterId;
+		const targetIds = getLegalTargets(state, step.actorPlayerId, ability);
+		const count = ability === "fortune_teller" ? 2 : 1;
+		$("#targetArea").innerHTML = `<div class="target-grid">${targetIds.map((id) => {
+			const player = getPlayer(state, id);
+			return `<label class="target-item"><input type="checkbox" value="${id}"><span class="t-name">${esc(player.name)}</span>${player.alive ? "" : `<span class="t-tag">（已死亡）</span>`}</label>`;
+		}).join("")}</div>`;
+		$("#targetArea").onchange = (event) => {
+			selectedNightTargets = [...$("#targetArea").querySelectorAll("input:checked")].map(({ value }) => value);
+			if (selectedNightTargets.length > count) {
+				event.target.checked = false;
+				selectedNightTargets = selectedNightTargets.filter((id) => id !== event.target.value);
+			}
+		};
+		$("#btnArea").innerHTML = "<button class=\"btn primary\" id=\"confirmNightTarget\">确认目标</button>";
+		$("#confirmNightTarget").onclick = () => {
+			if (selectedNightTargets.length !== count) return setMessage(`此能力需要选择 ${count} 个目标。`);
+			applyNightTarget(step, selectedNightTargets);
+		};
+	}
+	function applyNightTarget(step, targets) {
+		const ability = step.presentedCharacterId;
+		let result;
+		if (ability === "poisoner") result = usePoisonerAbility(state, step.actorPlayerId, targets[0]);
+		if (ability === "monk") result = useMonkAbility(state, step.actorPlayerId, targets[0]);
+		if (ability === "butler") result = { masterPlayerId: chooseButlerMaster(state, step.actorPlayerId, targets[0]) };
+		if (ability === "imp") result = resolveImpAttack(state, step.actorPlayerId, targets[0]);
+		if (ability === "fortune_teller") return showLegalOptions("占卜师合法信息结果", getFortuneTellerResultOptions(state, step.actorPlayerId, targets), { onChoose: (selectedOption) => recordInformationShown(state, {
+			actorPlayerId: step.actorPlayerId,
+			presentedCharacterId: ability,
+			selectedOption,
+			targetPlayerIds: targets
+		}) });
+		if (ability === "ravenkeeper") return showLegalOptions("守鸦人合法信息结果", getRavenkeeperResultOptions(state, step.actorPlayerId, targets[0]), { onChoose: (selectedOption) => recordInformationShown(state, {
+			actorPlayerId: step.actorPlayerId,
+			presentedCharacterId: ability,
+			selectedOption,
+			targetPlayerIds: targets
+		}) });
+		if (result?.decision) return showLegalOptions("需要说书人作出合法裁量", result.decision.legalOptions, { onChoose: (option) => {
+			if (result.decision.type === "IMP_STARPASS_SUCCESSOR") applyImpStarpassDecision(state, result.decision.id, option.id);
+			else if (result.decision.type === "MAYOR_NIGHT_DEATH") applyMayorDeathDecision(state, result.decision.id, option.id);
+			else chooseStorytellerOption(state, result.decision.id, option.id);
+			injectNightTriggers();
+		} });
+		injectNightTriggers();
+		$("#resultCard").classList.add("show");
+		$("#resultTitle").textContent = "操作已记录";
+		$("#resultBody").textContent = formatNightActionResult(ability, result);
+		$("#resultExtra").innerHTML = "<button class=\"btn primary\" id=\"continueNight\">继续</button>";
+		$("#continueNight").onclick = advanceNight;
+		persist();
+	}
+	function injectNightTriggers() {
+		if (!state.nightState.pendingTriggers.length) return;
+		state.nightState.steps.splice(state.nightState.currentStepIndex + 1, 0, ...state.nightState.pendingTriggers.splice(0));
+	}
+	function advanceNight() {
+		if (state.gameOver) return render();
+		state.nightState.currentStepIndex += 1;
+		persist();
+		render();
+	}
+	function finishNight() {
+		if (state.gameOver) return render();
+		expireStatusEffects(state, {
+			timing: "dawn",
+			night: state.night
+		});
+		startDay(state);
+		persist();
+		render();
+	}
+	function renderDay() {
+		$("#setupPanel").style.display = "none";
+		$("#gamePanel").style.display = "";
+		$("#targetArea").onchange = null;
+		$("#promptKind").textContent = `第 ${state.day} 天`;
+		$("#promptTitle").textContent = "提名、投票与处决";
+		$("#promptDesc").textContent = `上票门槛：${getVoteThreshold(state)} 票。必须严格高于当前最高票；平票时无人上处决台。`;
+		$("#promptRule").textContent = "存活玩家每天最多提名一次；每位玩家每天最多被提名一次；死者可被提名并可被处决。";
+		$("#stepDots").innerHTML = "";
+		$("#resultCard").classList.remove("show");
+		const nominators = state.players.filter((player) => player.alive && !state.dayState.nominatorPlayerIds.includes(player.id));
+		const nominees = state.players.filter((player) => !state.dayState.nominatedPlayerIds.includes(player.id));
+		const option = (player) => `<option value="${player.id}">${esc(player.name)}${player.alive ? "" : "（已死亡）"}</option>`;
+		$("#targetArea").innerHTML = state.dayState.nominationsClosed ? "<div class=\"hintline\">今天的提名已结束。</div>" : `<div class="setup-row"><select id="nominator"><option value="">提名者</option>${nominators.map(option).join("")}</select><select id="nominee"><option value="">被提名者</option>${nominees.map(option).join("")}</select><button class="btn" id="startNomination">开始提名</button></div><div id="voteArea"></div>`;
+		$("#btnArea").innerHTML = state.dayState.nominationsClosed ? state.gameOver ? "" : "<button class=\"btn primary\" id=\"nextNight\">进入下一夜</button>" : "<button class=\"btn warn\" id=\"closeNominations\">结束提名并执行上台玩家</button><button class=\"btn\" id=\"slayerAction\">记录杀手能力</button>";
+		$("#startNomination")?.addEventListener("click", beginNominationUi);
+		$("#closeNominations")?.addEventListener("click", () => {
+			const result = closeNominations(state);
+			setMessage(result.executionOccurred ? `${getPlayer(state, result.playerId).name} 被处决。` : "今日无人被处决。");
+		});
+		$("#nextNight")?.addEventListener("click", startNextNight);
+		$("#slayerAction")?.addEventListener("click", renderSlayerUi);
+	}
+	function beginNominationUi() {
+		try {
+			const result = startNomination(state, $("#nominator").value, $("#nominee").value);
+			persist();
+			if (result.virgin?.decision) return showLegalOptions("贞洁者登记裁量", result.virgin.decision.legalOptions, {
+				onChoose: (option) => resolveVirginDecision(state, result.virgin.decision.id, option.id),
+				onContinue: () => {
+					if (getVirginDecisionContinuation(state) === "normal_vote") renderVoteUi(result.nomination);
+					else render();
+				},
+				continueLabel: "返回本次提名"
+			});
+			if (state.dayState.nominationsClosed) return render();
+			renderVoteUi(result.nomination);
+		} catch (error) {
+			setMessage(error.message);
+		}
+	}
+	function renderVoteUi(nomination) {
+		$("#resultCard").classList.remove("show");
+		$("#voteArea").innerHTML = `<p>为 ${esc(getPlayer(state, nomination.nomineePlayerId).name)} 投票：</p><div class="target-grid">${state.players.map((player) => `<label class="target-item"><input type="checkbox" value="${player.id}" ${!player.alive && !player.ghostVoteAvailable ? "disabled" : ""}><span class="t-name">${esc(player.name)}</span>${player.alive ? "" : `<span class="t-tag">（幽灵票）</span>`}</label>`).join("")}</div><button class="btn primary" id="resolveVote">结束计票</button>`;
+		$("#resolveVote").onclick = () => {
+			const voters = [...$("#voteArea").querySelectorAll("input:checked")].map(({ value }) => value);
+			const vote = resolveNominationVote(state, nomination.id, voters);
+			persist();
+			setMessage(`计票 ${vote.nomination.voteCount}；结果：${vote.blockResult}${vote.warnings.length ? "；无效管家票已剔除" : ""}。`);
+		};
+	}
+	function renderSlayerUi() {
+		const slayer = state.players.find((player) => player.alive && player.perceivedCharacterId === "slayer" && !player.abilityState.used);
+		if (!slayer) return setMessage("没有可使用能力的存活“杀手”。");
+		$("#targetArea").innerHTML = `<select id="slayerTarget">${state.players.map((player) => `<option value="${player.id}">${esc(player.name)}</option>`).join("")}</select><button class="btn warn" id="confirmSlayer">公开选择</button>`;
+		$("#confirmSlayer").onclick = () => {
+			try {
+				const targetPlayerId = $("#slayerTarget").value;
+				const request = getSlayerResolutionRequest(state, targetPlayerId);
+				const resolve = (registrationOptionId) => {
+					const result = useSlayerAbility(state, slayer.id, targetPlayerId, registrationOptionId);
+					transientMessage = result.targetDied ? "杀手目标死亡。" : "杀手能力已消耗，目标没有死亡。";
+					persist();
+					return result;
+				};
+				if (!request.requiresStorytellerChoice) {
+					resolve(request.automaticOptionId);
+					return render();
+				}
+				const decision = createStorytellerDecision(state, {
+					type: "SLAYER_REGISTRATION",
+					context: {
+						actorPlayerId: slayer.id,
+						targetPlayerId
+					},
+					legalOptions: request.registrationOptions
+				});
+				return showLegalOptions("此次杀手目标如何登记？", decision.legalOptions, {
+					onChoose: (option) => {
+						chooseStorytellerOption(state, decision.id, option.id);
+						resolve(option.id);
+					},
+					onContinue: render,
+					continueLabel: "返回白天"
+				});
+			} catch (error) {
+				setMessage(error.message);
+			}
+		};
+	}
+	function startNextNight() {
+		if (endDayAtDusk(state).gameOver) return render();
+		state.phase = "night";
+		state.night += 1;
+		state.nightState = createNightState(state.night);
+		appendEvent(state, EVENT_TYPES.NIGHT_STARTED, { night: state.night });
+		state.nightState.steps = buildNightSteps(state);
+		persist();
+		render();
+	}
+	function renderPlayers() {
+		$("#playerPanelList").innerHTML = state.players.sort((a, b) => a.seat - b.seat).map((player) => `
+    <div class="player-row ${player.alive ? "" : "dead"}">
+      <div class="player-identity"><b>${player.seat + 1}. ${esc(player.name)}</b><small>${roleName(player.actualCharacterId)}${player.actualCharacterId !== player.perceivedCharacterId ? `（认知：${roleName(player.perceivedCharacterId)}）` : ""}</small></div>
+      <div class="player-actions"><span class="life-state">${player.alive ? "存活" : `死亡 · ${player.ghostVoteAvailable ? "有幽灵票" : "幽灵票已用"}`}</span>${state.phase !== "setup" && player.alive ? `<button class="btn ghost" data-kill="${player.id}">标记死亡</button>` : ""}${state.phase !== "setup" && !player.alive ? `<button class="btn ghost" data-revive="${player.id}">手动复活</button>` : ""}</div>
+    </div>`).join("");
+		$("#playerPanelList").querySelectorAll("[data-kill]").forEach((button) => button.addEventListener("click", () => {
+			if (!confirm("这是说书人的手动状态修正。确认将该玩家标记为死亡？")) return;
+			resolveDeath(state, button.dataset.kill, { cause: "storyteller_manual" });
+			persist();
+			render();
+		}));
+		$("#playerPanelList").querySelectorAll("[data-revive]").forEach((button) => button.addEventListener("click", () => {
+			if (!confirm("Trouble Brewing 没有常规复活能力；仅在修正说书人录入错误时使用。确认复活？")) return;
+			resurrectPlayer(state, button.dataset.revive);
+			persist();
+			render();
+		}));
+	}
+	function formatAction(event) {
+		const payload = event.payload ?? {};
+		const name = (id) => getPlayer(state, id)?.name ?? id ?? "";
+		const role = (id) => roleName(id);
+		const registrationText = (source) => {
+			const selectedOption = source?.selectedOption;
+			const registrations = source?.registered ? [source] : [
+				source?.registration,
+				...(source?.registrationEvidence ?? []),
+				selectedOption?.registration,
+				...(selectedOption?.registrationEvidence ?? [])
+			].filter((registration) => registration?.registered);
+			const uniqueRegistrations = registrations.filter((registration, index) => index === registrations.findIndex((candidate) => candidate.id === registration.id && candidate.targetPlayerId === registration.targetPlayerId));
+			if (!uniqueRegistrations.length) return "";
+			return uniqueRegistrations.map((registration) => {
+				const sourceCharacterId = registration.sourceCharacterId ?? getPlayer(state, registration.targetPlayerId)?.actualCharacterId;
+				const sourceName = sourceCharacterId === "spy" ? "间谍" : sourceCharacterId === "recluse" ? "陌客" : role(sourceCharacterId);
+				const targetName = name(registration.targetPlayerId);
+				const shownAs = registration.registrationType === "alignment" ? registration.alignment === "good" ? "善良阵营" : "邪恶阵营" : role(registration.characterId);
+				return `${sourceName}登记：${targetName} 本次按「${shownAs}」呈现`;
+			}).join("；").replace(/^/, "；");
+		};
+		const describeDecisionOption = (option) => {
+			if (!option) return "已记录";
+			if (option.playerId) return name(option.playerId);
+			if (registrationText(option)) return registrationText(option).replace(/^；/, "");
+			return option.id ?? "已记录";
+		};
+		switch (event.type) {
+			case "GAME_STARTED": {
+				const roster = (payload.players ?? []).sort((left, right) => left.seat - right.seat).map((player) => `${player.seat + 1}.${player.name}=${role(player.actualCharacterId)}${player.perceivedCharacterId !== player.actualCharacterId ? `（认知：${role(player.perceivedCharacterId)}）` : ""}`).join("；");
+				const redHerring = payload.redHerringPlayerId ? `；红鲱鱼：${name(payload.redHerringPlayerId)}` : "";
+				const bluffs = payload.demonBluffs?.length ? `；恶魔伪装：${payload.demonBluffs.map(role).join("、")}` : "";
+				return `${payload.snapshot ? "当前身份快照（旧存档未记录开局）" : "开局身份"}：${roster}${redHerring}${bluffs}`;
+			}
+			case "NIGHT_STARTED": return `进入第 ${event.night} 夜`;
+			case "DAY_STARTED": return `进入第 ${event.day} 天`;
+			case "CHARACTER_CHANGED": return `${name(payload.playerId)} 的角色由「${role(payload.previousCharacterId)}」变为「${role(payload.characterId)}」`;
+			case "STATUS_APPLIED": { const typeText = payload.effect?.type === "poisoned" ? "中毒" : "僧侣保护"; return `${name(payload.effect?.sourcePlayerId)} 使 ${name(payload.effect?.targetPlayerId)} ${typeText}`; }
+			case "STATUS_EXPIRED": {
+				const typeText = payload.type === "poisoned" ? "中毒" : "僧侣保护";
+				if (payload.reason === "source_lost_ability") return `${name(payload.targetPlayerId)} 的${typeText}因来源 ${name(payload.sourcePlayerId)} 失去能力而移除`;
+				return `${name(payload.targetPlayerId)} 的${typeText}效果到期`;
+			}
+			case "PLAYER_SELECTED": return `${name(payload.actorPlayerId)}（${role(payload.ability)}）选择 ${name(payload.targetPlayerId)}${payload.abilityFunctional === false ? "（能力失效）" : ""}`;
+			case "ABILITY_RESOLVED": {
+				const abilityText = { poisoner: "投毒者", monk: "僧侣", butler: "管家", imp: "小恶魔" }[payload.ability] ?? role(payload.ability);
+				if (payload.ability === "poisoner") return `${name(payload.actorPlayerId)}（${abilityText}）结算：${name(payload.targetPlayerId)}${payload.effectApplied ? "中毒至次日黄昏" : "未施加中毒（能力失效）"}`;
+				if (payload.ability === "monk") return `${name(payload.actorPlayerId)}（${abilityText}）结算：${name(payload.targetPlayerId)}${payload.effectApplied ? "获得本夜僧侣保护" : "未施加保护（能力失效）"}`;
+				if (payload.ability === "butler") return `${name(payload.actorPlayerId)}（${abilityText}）选择主人：${name(payload.masterPlayerId)}${payload.abilityFunctional === false ? "（能力失效）" : ""}`;
+				const outcomeText = {
+					imp_ability_malfunction: "能力失效",
+					target_already_dead: "目标已经死亡",
+					monk_protected: "目标受僧侣保护",
+					soldier_safe: "目标为士兵且免疫",
+					target_died: "目标死亡",
+					no_death: "未造成死亡",
+					imp_died_no_successor: "小恶魔死亡且没有继任者",
+					starpass: "小恶魔自杀并完成传承",
+					starpass_decision_required: "小恶魔自杀，等待继任裁量",
+					mayor_decision_required: "镇长代死，等待裁量",
+					mayor_death_resolved: "镇长代死裁量已结算",
+					mayor_redirect_no_death: "镇长代死未造成死亡"
+				}[payload.outcome] ?? payload.outcome ?? "已结算";
+				const died = payload.diedPlayerIds?.length ? `；死亡：${payload.diedPlayerIds.map(name).join("、")}` : "";
+				const successor = payload.successorPlayerId ? `；新小恶魔：${name(payload.successorPlayerId)}` : "";
+				return `${name(payload.actorPlayerId)}（${abilityText}）结算：${outcomeText}${died}${successor}`;
+			}
+			case "ABILITY_USED": {
+				if (payload.characterId === "virgin") return `${name(payload.nominatorPlayerId)} 提名 ${name(payload.virginPlayerId)}（贞洁者）${payload.trigger ? "，触发立即处决" : "，未触发"}${registrationText(payload.registration)}`;
+				if (payload.ability === "slayer") return `${name(payload.actorPlayerId)}（杀手）公开选择 ${name(payload.targetPlayerId)}${payload.abilityFunctional === false ? "，能力失效" : payload.targetDied ? "，目标死亡" : "，目标未死亡"}${registrationText(payload.registration)}`;
+				return `${name(payload.actorPlayerId)} 发动能力：${role(payload.ability ?? payload.characterId)}`;
+			}
+			case "NOMINATION_STARTED": return `${name(payload.nominatorPlayerId)} 提名 ${name(payload.nomineePlayerId)}`;
+			case "NOMINATION_RESOLVED": { const text = { new_highest: "成为当前最高票", tie: "平票，无人上处决台", lower_than_block: "未超过当前最高票", below_threshold: "未达门槛" }[payload.blockResult] ?? payload.blockResult; const voters = payload.voterPlayerIds?.length ? `；投票：${payload.voterPlayerIds.map(name).join("、")}` : "；无人投票"; return `${name(payload.nomineePlayerId)} 的提名计票 ${payload.voteCount} 票（门槛 ${payload.threshold}），${text}${voters}`; }
+			case "NOMINATION_DETAIL": return payload.warnings?.length ? `管家投票无效：${payload.warnings.map((warning) => `${name(warning.playerId)} 的主人 ${name(warning.masterPlayerId)} 未投票`).join("；")}` : "计票详情已记录";
+			case "EXECUTION": return `${name(payload.playerId)} 被处决${payload.causedDeath ? "" : "（未死亡）"}`;
+			case "EXECUTION_DETAIL": { const reasonText = { daily_execution: "日常处决", virgin_ability: "贞洁者能力" }[payload.reason] ?? payload.reason; return `${name(payload.playerId)} 处决原因：${reasonText}`; }
+			case "DEATH": return `${name(payload.playerId)} 死亡`;
+			case "DEATH_DETAIL": {
+				const causeText = { imp_attack: "被小恶魔击杀", imp_self_kill: "小恶魔自杀", execution: "被处决", virgin_ability: "贞洁者能力", mayor_redirect: "镇长代死", slayer: "杀手能力", storyteller_manual: "说书人手动修正", monk_protected: "僧侣保护（未死亡）", soldier_safe: "士兵免疫（未死亡）", target_already_dead: "目标已死亡" }[payload.cause] ?? payload.cause;
+				return `${name(payload.playerId)} ${causeText}${payload.sourcePlayerId ? `，由 ${name(payload.sourcePlayerId)} 导致` : ""}`;
+			}
+			case "RESURRECTION": return `${name(payload.playerId)} 复活（说书人手动修正）`;
+			case "INFORMATION_SHOWN": {
+				const targets = payload.targetPlayerIds?.length ? `；目标：${payload.targetPlayerIds.map(name).join("、")}` : "";
+				return `向 ${name(payload.actorPlayerId)}（${role(payload.presentedCharacterId)}）展示：${formatInformation(payload.selectedOption)}${targets}${registrationText(payload)}`;
+			}
+			case "NIGHT_INFORMATION_SHOWN": {
+				if (payload.kind === "minion_info") return `首夜向爪牙 ${payload.minionPlayerIds.map(name).join("、")} 展示恶魔：${name(payload.demonPlayerId)}`;
+				if (payload.kind === "demon_info") return `首夜向恶魔 ${name(payload.demonPlayerId)} 展示爪牙：${payload.minionPlayerIds.map(name).join("、")}；伪装：${payload.demonBluffs.map(role).join("、")}`;
+				if (payload.kind === "spy_grimoire" && !payload.abilityFunctional) return `${name(payload.actorPlayerId)}（间谍）被唤醒，但能力失效，未查看真实魔典${payload.shownInformation ? `；记录的失效信息：${payload.shownInformation}` : ""}`;
+				if (payload.kind === "spy_grimoire") {
+					const grimoire = (payload.grimoire ?? []).map((row) => `${name(row.playerId)}=${role(row.actualCharacterId)}${row.perceivedCharacterId !== row.actualCharacterId ? `（认知：${role(row.perceivedCharacterId)}）` : ""}${row.alive ? "" : "（死亡）"}${row.reminders?.length ? `［${row.reminders.join("、")}］` : ""}`).join("；");
+					return `${name(payload.actorPlayerId)}（间谍）查看魔典：${grimoire}`;
+				}
+				return "夜晚私密信息已展示";
+			}
+			case "PRIVATE_NOTIFICATION": return `私密通知 ${name(payload.recipientPlayerId)}：${payload.notificationType === "new_imp" ? "你是小恶魔" : payload.notificationType}`;
+			case "STORYTELLER_DECISION": return `说书人裁量（${payload.decisionType}）：${describeDecisionOption(payload.option)}`;
+			case "VICTORY": return `游戏结束：${payload.winningTeam === "good" ? "善良" : "邪恶"}阵营获胜`;
+			case "GAME_ENDED": return `游戏结束（${payload.winningTeam === "good" ? "善良" : "邪恶"}获胜）`;
+			default: return `已记录：${event.type}`;
+		}
+	}
+	function getReviewEvents() {
+		if (state.events.some((event) => event.type === EVENT_TYPES.GAME_STARTED) || !state.players.length) return state.events;
+		return [{
+			id: "snapshot",
+			type: EVENT_TYPES.GAME_STARTED,
+			phase: "setup",
+			night: 0,
+			day: 0,
+			visibility: "storyteller",
+			payload: {
+				snapshot: true,
+				players: state.players.map((player) => ({
+					playerId: player.id,
+					name: player.name,
+					seat: player.seat,
+					actualCharacterId: player.actualCharacterId,
+					perceivedCharacterId: player.perceivedCharacterId,
+					alignment: player.alignment
+				})),
+				demonBluffs: [...state.demonBluffs],
+				redHerringPlayerId: state.redHerringPlayerId
+			}
+		}, ...state.events];
+	}
+	function getReviewLogText() {
+		return getReviewEvents().map((event) => {
+			const when = event.phase === "night" ? `夜${event.night}` : event.phase === "day" ? `日${event.day}` : "设置";
+			return `${when} ${formatAction(event)}`;
+		}).join("\n");
+	}
+	function renderLog() {
+		const events = [...getReviewEvents()].reverse();
+		$("#logBox").innerHTML = events.length ? events.map((event) => {
+			const cls = event.type === "NIGHT_STARTED" ? "night" : event.type === "DAY_STARTED" ? "day" : event.type === "DEATH" || event.type === "EXECUTION" ? "death" : event.type === "VICTORY" || event.type === "GAME_ENDED" ? "win" : "";
+			const when = event.phase === "night" ? `夜${event.night}` : event.phase === "day" ? `日${event.day}` : "设置";
+			return `<div class="le ${cls}"><span class="time">${when}</span> ${esc(formatAction(event))}</div>`;
+		}).join("") : "<div class=\"hintline\">尚无复盘记录。</div>";
+	}
+	function openRoles() {
+		$("#modalRolesBody").innerHTML = CHARACTERS.map((role) => `<div class="role-card"><b>${esc(role.nameZh)} · ${esc(role.nameEn)}</b><p>${esc(role.abilityTextZh)}</p><a href="${role.wikiUrl}" target="_blank" rel="noreferrer">官方 Wiki</a></div>`).join("");
+		$("#modalRoles").classList.add("show");
+	}
+	function openGrimoire() {
+		$("#modalGrimoire").querySelector("h2").textContent = "角色表（Grimoire）—— 仅供说书人查看";
+		const reminderText = {
+			dead: "死亡",
+			poisoned: "中毒",
+			monk_protected: "僧侣保护",
+			red_herring: "红鲱鱼",
+			current_demon: "当前恶魔",
+			slayer_used: "杀手已使用",
+			virgin_consumed: "贞洁者首次提名已消耗",
+			virgin_available: "贞洁者首次提名可用"
+		};
+		const informationRoleText = {
+			washerwoman: "洗衣妇",
+			librarian: "图书管理员",
+			investigator: "调查员"
+		};
+		$("#modalGrimoireBody").innerHTML = getGrimoireRows(state).map((row) => {
+			const reminders = row.reminders.map((reminder) => {
+				if (reminder.startsWith("butler_master:")) return `管家主人：${getPlayer(state, reminder.split(":")[1])?.name ?? "未知"}`;
+				if (reminder.startsWith("information:")) {
+					const [, informationCharacterId, shownCharacterId] = reminder.split(":");
+					return `${informationRoleText[informationCharacterId] ?? informationCharacterId}：${roleName(shownCharacterId)}候选`;
+				}
+				return reminderText[reminder] ?? reminder;
+			});
+			return `<div class="grimoire-row"><b>${esc(row.name)}</b><span>${esc(roleName(row.actualCharacterId))}${row.actualCharacterId !== row.perceivedCharacterId ? ` / 认知 ${esc(roleName(row.perceivedCharacterId))}` : ""}<small style="display:block;color:var(--muted)">${esc(reminders.join(" · ") || "无额外状态")}</small></span></div>`;
+		}).join("");
+		$("#modalGrimoire").classList.add("show");
+	}
+	function openSpyGrimoire() {
+		const reminderText = {
+			dead: "死亡",
+			poisoned: "中毒",
+			monk_protected: "僧侣保护",
+			red_herring: "红鲱鱼",
+			current_demon: "当前小恶魔",
+			slayer_used: "杀手能力已用",
+			virgin_available: "贞洁者能力未触发",
+			virgin_consumed: "贞洁者能力已触发"
+		};
+		$("#modalGrimoire").querySelector("h2").textContent = "间谍魔典";
+		$("#modalGrimoireBody").innerHTML = getGrimoireRows(state).map((row) => {
+			const reminders = row.reminders.map((reminder) => {
+				if (reminder.startsWith("butler_master:")) return `管家主人：${getPlayer(state, reminder.slice("butler_master:".length))?.name ?? "未知"}`;
+				if (reminder.startsWith("information:")) return "首夜信息提示";
+				return reminderText[reminder] ?? reminder;
+			});
+			return `<div class="grimoire-row"><b>${esc(row.name)}</b><span>${esc(roleName(row.actualCharacterId))}<small style="display:block;color:var(--muted)">${esc(reminders.join(" · ") || "无额外状态")}</small></span></div>`;
+		}).join("");
+		$("#modalGrimoire").classList.add("show");
+	}
+	function openDraw() {
+		if (state.players.some((player) => !player.actualCharacterId)) return setMessage("还有玩家没有配置身份，不能开始抽取。");
+		revalidateSetupChoices();
+		drawState = createDrawState(state.players);
+		$("#modalDraw").classList.add("show");
+		renderDraw();
+	}
+	function renderDraw() {
+		const view = getCurrentDrawView(state.players, drawState);
+		$("#btnDrawClose").disabled = !canCloseDraw(drawState);
+		if (view.complete) {
+			$("#drawBody").innerHTML = "<div style=\"font-size:22px;color:var(--good);font-family:var(--serif)\">✓ 身份已全部抽取完毕</div><p>现在可以关闭窗口并开始游戏。</p>";
+			return;
+		}
+		if (!view.revealed) {
+			$("#drawBody").innerHTML = `<div class="deck-progress">第 ${view.drawIndex + 1} / ${view.total} 位</div><div style="font-size:34px;font-family:var(--serif);margin:16px 0">请 <b style="color:var(--sel)">${esc(view.playerName)}</b> 上前</div><p>请确保屏幕只被当前玩家看到。</p><button class="btn primary" id="revealCurrentDraw">翻开我的身份 ▸</button>`;
+			$("#revealCurrentDraw").onclick = () => {
+				drawState = revealCurrentDraw(drawState);
+				renderDraw();
+			};
+			return;
+		}
+		$("#drawBody").innerHTML = `<div class="deck-progress">第 ${view.drawIndex + 1} / ${view.total} 位 · ${esc(view.playerName)}</div><div class="draw-role"><h3>${esc(view.character?.nameZh ?? "")}</h3><p>${esc(view.character?.abilityTextZh ?? "")}</p></div><button class="btn primary" id="hideAndAdvanceDraw">看好了，请隐藏 ▸</button>`;
+		$("#hideAndAdvanceDraw").onclick = () => {
+			drawState = hideAndAdvanceDraw(state.players, drawState);
+			renderDraw();
+		};
+	}
+	function renderVictory() {
+		$("#victoryAlert").innerHTML = state.gameOver ? `<div class="alert-banner ${state.winningTeam === "good" ? "good" : "evil"}">游戏结束：${state.winningTeam === "good" ? "善良" : "邪恶"}阵营获胜（${esc(state.winReason)}）</div>` : "";
+	}
+	function render() {
+		$("#pillSetup").classList.toggle("active", state.phase === "setup");
+		$("#pillDay").classList.toggle("active", state.phase === "day");
+		$("#pillNight").classList.toggle("active", state.phase === "night");
+		if (state.phase === "setup") renderSetup();
+		else if (state.phase === "night") renderNight();
+		else renderDay();
+		if (state.phase !== "setup") $("#promptMeta").textContent = transientMessage ?? "";
+		renderPlayers();
+		renderLog();
+		renderVictory();
+	}
+	$("#btnAddPlayer").onclick = () => {
+		const count = Number($("#newPlayerCount").value);
+		if (!Number.isInteger(count) || count < 5 || count > 15) return setMessage("玩家人数必须是 5–15。");
+		freshSetup(count);
+		render();
+	};
+	$("#btnRandomBag").onclick = () => {
+		try {
+			state = createRandomSetup(state.players.map(({ name }) => name));
+			transientMessage = state.players.length >= 7 ? "已生成合法角色袋；请继续由说书人确认三个恶魔伪装。" : "已生成符合官方人数配比且角色唯一的角色袋。";
+			persist();
+			render();
+		} catch (error) {
+			setMessage(error.message);
+		}
+	};
+	$("#btnStart").onclick = startGame;
+	$("#btnStartDraw").onclick = openDraw;
+	$("#btnDrawClose").onclick = () => {
+		if (drawState && canCloseDraw(drawState)) $("#modalDraw").classList.remove("show");
+	};
+	$("#btnGuide").onclick = () => $("#modalGuide").classList.add("show");
+	$("#btnRoles").onclick = openRoles;
+	$("#btnGrimoire").onclick = openGrimoire;
+	$("#btnCopyLog").onclick = async () => {
+		const text = getReviewLogText();
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch {
+			window.prompt("复制复盘：", text);
+		}
+	};
+	$("#btnReset").onclick = () => {
+		if (!confirm("确定新开一局吗？")) return;
+		localStorage.removeItem(SAVE_KEY_V2);
+		localStorage.removeItem(LEGACY_SAVE_KEY);
+		freshSetup(5);
+		render();
+	};
+	document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => $(`#${button.dataset.close}`).classList.remove("show")));
+	document.addEventListener("keydown", (event) => {
+		if (event.key !== "Escape") return;
+		document.querySelectorAll(".modal-mask.show").forEach((modal) => {
+			if (modal.id !== "modalDraw" || drawState && canCloseDraw(drawState)) modal.classList.remove("show");
+		});
+	});
+	render();
+	})();
+
+</script>
+</body>
+</html>
